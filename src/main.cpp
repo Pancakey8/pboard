@@ -8,14 +8,17 @@ int main() {
   SetWindowState(FLAG_WINDOW_RESIZABLE);
   SetTargetFPS(60);
 
-  int sd{-1};
+  asio::io_context io_context;
+
+  std::optional<asio::ip::udp::socket> sock;
+  bool is_host{false};
 
   {
     pboard::menu::MenuState menu{};
 
     while (!WindowShouldClose()) {
-      menu.update(sd);
-      if (sd != -1) {
+      menu.update(sock, is_host, io_context);
+      if (sock.has_value()) {
         break;
       }
 
@@ -26,7 +29,8 @@ int main() {
   }
 
   {
-    pboard::whiteboard::Whiteboard board{0};
+    pboard::whiteboard::Whiteboard board{io_context, std::move(sock.value()),
+                                         is_host};
 
     while (!WindowShouldClose()) {
       board.update();

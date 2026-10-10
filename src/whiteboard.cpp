@@ -2,6 +2,7 @@
 
 namespace pboard::whiteboard {
   void Whiteboard::update() {
+    client.update();
     ui.update();
   }
 

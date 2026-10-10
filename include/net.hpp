@@ -1,6 +1,7 @@
 #pragma once
 
 #include "shape.hpp"
+#include <asio.hpp>
 #include <cstdint>
 #include <flat_map>
 
@@ -25,11 +26,44 @@ struct Object {
   bool deleted{false};
 };
 
-struct ClientState {
-  ClientId self;
-  Generation gen;
+struct Message {
+  struct Create {
+    ObjectId id;
+    shape::Shape shape;
+    ObjectId after;
+  };
 
-  std::flat_map<ClientId, Generation> version{};
+  struct Delete {
+    ObjectId id;
+  };
+
+  struct Hi {};
+
+  struct Ih {
+    ClientId assign;
+  };
+
+  using Var = std::variant<Create, Hi, Ih, Delete>;
+  Var data;
+
+  void serialize(std::vector<std::uint8_t> &out);
+  static std::optional<Message> deserialize(std::span<const std::uint8_t> buf);
+
+  std::string to_string() const;
+};
+
+struct ClientState {
+  asio::io_context &io_context;
+  asio::ip::udp::socket sock;
+
+  bool is_host;
+  std::vector<asio::ip::udp::endpoint> host_eps{};
+  ClientId ids{1};
+
+  ClientId self{static_cast<ClientId>(-1)};
+  Generation gen{0};
+
+  std::flat_map<ClientId, Generation> version{}; // TODO This
   std::flat_map<ObjectId, Object> objs{};
   ObjectId head{OBJ_NONE};
   ObjectId last{OBJ_NONE};
@@ -37,6 +71,10 @@ struct ClientState {
   void push_back(shape::Shape shape, ObjectId origin);
   void insert(ObjectId id, Object obj, ObjectId origin);
   void erase(ObjectId id);
+
+  void intro();
+  void update();
+  void handle(asio::ip::udp::endpoint sender, Message msg);
 
   template <bool IsConst> class Iterator {
   public:

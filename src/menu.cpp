@@ -77,13 +77,14 @@ void Label::render() const {
   DrawText(text.c_str(), x + (w - size) / 2, y + (h - 24) / 2, 24, col);
 }
 
-int MenuState::try_connect() {
+void MenuState::try_connect(std::optional<asio::ip::udp::socket> &sock,
+                            bool &is_host, asio::io_context &io_context) {
   bool is_peer = !peer_addr.content.empty() || !peer_port.content.empty();
   bool is_self = !self_port.content.empty();
   if (is_self && is_peer) {
     sock_fail.text = "Only provide peer or port, not both.";
     layout();
-    return -1;
+    return;
   } else if (is_self) {
     std::uint16_t port;
     auto [ptr, ec] = std::from_chars(
@@ -92,28 +93,45 @@ int MenuState::try_connect() {
     if (ec != std::errc()) {
       sock_fail.text = "Listen port is invalid.";
       layout();
-      return -1;
+      return;
     }
-    return 1234;
-  } else if (is_peer) {
-    std::uint16_t port;
-    auto [ptr, ec] = std::from_chars(
-        peer_port.content.data(),
-        peer_port.content.data() + peer_port.content.size(), port);
-    if (ec != std::errc()) {
-      sock_fail.text = "Peer port is invalid.";
+    try {
+      asio::ip::udp::endpoint endpoint(asio::ip::udp::v4(), port);
+      sock = asio::ip::udp::socket(io_context, endpoint);
+      sock->non_blocking(true);
+      is_host = true;
+    } catch (const std::exception &e) {
+      sock_fail.text = "Failed to bind port: " + std::string(e.what());
       layout();
-      return -1;
+      return;
     }
-    return 1234;
+  } else if (is_peer) {
+    try {
+      asio::ip::udp::resolver resolver(io_context);
+      auto endpoints = resolver.resolve(asio::ip::udp::v4(), peer_addr.content,
+                                        peer_port.content);
+
+      sock = asio::ip::udp::socket(io_context, asio::ip::udp::v4());
+
+      sock->connect(*endpoints.begin());
+
+      sock->non_blocking(true);
+
+      is_host = false;
+    } catch (const std::exception &e) {
+      sock_fail.text = "Failed to connect to peer: " + std::string(e.what());
+      layout();
+      return;
+    }
   } else {
     sock_fail.text = "No peer/port provided.";
     layout();
-    return -1;
+    return;
   }
 }
 
-void MenuState::update(int &sock) {
+void MenuState::update(std::optional<asio::ip::udp::socket> &sock,
+                       bool &is_host, asio::io_context &io_context) {
   if (IsWindowResized()) {
     layout();
   }
@@ -124,8 +142,7 @@ void MenuState::update(int &sock) {
   connect.update();
 
   if (connect.is_pressed) {
-    int sd = try_connect();
-    sock = sd;
+    try_connect(sock, is_host, io_context);
   }
 }
 

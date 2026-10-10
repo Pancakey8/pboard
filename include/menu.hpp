@@ -1,6 +1,6 @@
 #pragma once
 
-#include <cstdint>
+#include <asio.hpp>
 #include <raylib.h>
 #include <string>
 
@@ -54,10 +54,14 @@ struct MenuState {
   }
 
   void layout();
-  void update(int &sock);
+  void update(std::optional<asio::ip::udp::socket> &sock,
+              bool &is_host,
+              asio::io_context &io_context);
   void render() const;
 
-  int try_connect();
+  void try_connect(std::optional<asio::ip::udp::socket> &sock,
+                   bool &is_host,
+                   asio::io_context &io_context);
 };
 
 } // namespace pboard::menu
