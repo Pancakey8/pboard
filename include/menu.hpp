@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+#include <raylib.h>
 #include <string>
 
 namespace pboard::menu {
@@ -25,22 +27,37 @@ struct Button {
   void render() const;
 };
 
+struct Label {
+  float x, y, w, h;
+  std::string text;
+  Color col;
+  void render() const;
+};
+
 struct MenuState {
   float w, h;
   InputBox self_port, peer_addr, peer_port;
   Button connect;
+  Label form_div;
+  Label sock_fail;
 
   MenuState() {
     self_port.hint = "Listen on...";
     peer_addr.hint = "Peer IP...";
     peer_port.hint = "Peer Port...";
     connect.text = "Connect";
+    form_div.text = "or";
+    form_div.col = BLACK;
+    sock_fail.text = "";
+    sock_fail.col = RED;
     layout();
   }
 
   void layout();
   void update(int &sock);
   void render() const;
+
+  int try_connect();
 };
 
 } // namespace pboard::menu

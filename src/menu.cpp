@@ -1,6 +1,9 @@
 #include "menu.hpp"
+#include <charconv>
+#include <cstdint>
 #include <print>
 #include <raylib.h>
+#include <system_error>
 
 namespace pboard::menu {
 
@@ -69,6 +72,47 @@ void Button::render() const {
   DrawText(text.c_str(), x + (w - size) / 2, y + (h - 16) / 2, 16, WHITE);
 }
 
+void Label::render() const {
+  int size = MeasureText(text.c_str(), 24);
+  DrawText(text.c_str(), x + (w - size) / 2, y + (h - 24) / 2, 24, col);
+}
+
+int MenuState::try_connect() {
+  bool is_peer = !peer_addr.content.empty() || !peer_port.content.empty();
+  bool is_self = !self_port.content.empty();
+  if (is_self && is_peer) {
+    sock_fail.text = "Only provide peer or port, not both.";
+    layout();
+    return -1;
+  } else if (is_self) {
+    std::uint16_t port;
+    auto [ptr, ec] = std::from_chars(
+        self_port.content.data(),
+        self_port.content.data() + self_port.content.size(), port);
+    if (ec != std::errc()) {
+      sock_fail.text = "Listen port is invalid.";
+      layout();
+      return -1;
+    }
+    return 1234;
+  } else if (is_peer) {
+    std::uint16_t port;
+    auto [ptr, ec] = std::from_chars(
+        peer_port.content.data(),
+        peer_port.content.data() + peer_port.content.size(), port);
+    if (ec != std::errc()) {
+      sock_fail.text = "Peer port is invalid.";
+      layout();
+      return -1;
+    }
+    return 1234;
+  } else {
+    sock_fail.text = "No peer/port provided.";
+    layout();
+    return -1;
+  }
+}
+
 void MenuState::update(int &sock) {
   if (IsWindowResized()) {
     layout();
@@ -80,16 +124,17 @@ void MenuState::update(int &sock) {
   connect.update();
 
   if (connect.is_pressed) {
-    std::println("Listen on 0.0.0.0:{}", self_port.content);
-    std::println("Connect to {}:{}", peer_addr.content, peer_port.content);
-    sock = 1234; // TODO
+    int sd = try_connect();
+    sock = sd;
   }
 }
 
 void MenuState::render() const {
   ClearBackground(Color(180, 180, 180, 255));
+  sock_fail.render();
   peer_addr.render();
   peer_port.render();
+  form_div.render();
   self_port.render();
   connect.render();
 }
@@ -98,23 +143,35 @@ void MenuState::layout() {
   float w_form = 180;
   float h_each = 40;
   float gap = 20;
+  int count = sock_fail.text.empty() ? 5 : 6;
 
   float min_w = w_form + 2 * gap;
-  float min_h = h_each * 4 + gap * 3 + 2 * gap;
+  float min_h = h_each * count + gap * (count - 1) + 2 * gap;
 
   float w = std::max(min_w, static_cast<float>(GetRenderWidth()));
   float h = std::max(min_h, static_cast<float>(GetRenderHeight()));
 
-  connect.w = self_port.w = peer_addr.w = peer_port.w = w_form;
-  connect.h = self_port.h = peer_addr.h = peer_port.h = h_each;
-  connect.x = self_port.x = peer_addr.x = peer_port.x = gap + (w - min_w) / 2;
+  connect.w = self_port.w = peer_addr.w = peer_port.w = sock_fail.w =
+      form_div.w = w_form;
+  connect.h = self_port.h = peer_addr.h = peer_port.h = sock_fail.h =
+      form_div.h = h_each;
+  connect.x = self_port.x = peer_addr.x = peer_port.x = sock_fail.x =
+      form_div.x = gap + (w - min_w) / 2;
 
   float y = gap + (h - min_h) / 2;
+
+  if (!sock_fail.text.empty()) {
+    sock_fail.y = y;
+    y += h_each + gap;
+  }
 
   peer_addr.y = y;
   y += h_each + gap;
 
   peer_port.y = y;
+  y += h_each + gap;
+
+  form_div.y = y;
   y += h_each + gap;
 
   self_port.y = y;
