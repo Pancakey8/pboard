@@ -42,24 +42,29 @@ void UIState::update() {
   }
 
   if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-    tool.x0 = GetMouseX() + vx;
-    tool.y0 = GetMouseY() + vy;
+    tool.x0 = GetMouseX() / scale + vx;
+    tool.y0 = GetMouseY() / scale + vy;
   }
 
   if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
-    if (auto shape = tool.render_of(GetMouseX() + vx, GetMouseY() + vy))
+    if (auto shape = tool.render_of(GetMouseX() / scale + vx, GetMouseY() / scale + vy))
       shapes.emplace_back(shape.value());
   }
 
   if (tool.selection == ToolUse::Tool::PAN &&
       IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
     auto dv = GetMouseDelta();
-    vx -= dv.x;
-    vy -= dv.y;
+    vx -= dv.x / scale;
+    vy -= dv.y / scale;
+  }
+
+  if (tool.selection == ToolUse::Tool::PAN && GetMouseWheelMove() != 0) {
+    scale += GetMouseWheelMove() * 0.2f;
+    scale = std::clamp(scale, 0.1f, 3.0f);
   }
 
   if (tool.selection == ToolUse::Tool::LINE &&
-      IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
+      GetMouseWheelMove() != 0) {
     tool.line_thickness += GetMouseWheelMove() * 2.0f;
     tool.line_thickness = std::max(1.0f, tool.line_thickness);
   }
@@ -84,23 +89,27 @@ void UIState::update() {
 void UIState::render() const {
   struct {
     float vx, vy;
+    float scale;
     float alpha;
 
     void operator()(const RenderLine &line) {
-      DrawLineEx({line.x0 - vx, line.y0 - vy}, {line.x1 - vx, line.y1 - vy},
-                 line.thick, Color(line.col.r, line.col.g, line.col.b, alpha));
+      DrawLineEx({(line.x0 - vx) * scale, (line.y0 - vy) * scale},
+                 {(line.x1 - vx) * scale, (line.y1 - vy) * scale},
+                 line.thick * scale,
+                 Color(line.col.r, line.col.g, line.col.b, alpha));
     }
 
     void operator()(const RenderRect &rect) {
-      DrawRectangle(rect.x - vx, rect.y - vy, rect.w, rect.h,
+      DrawRectangle((rect.x - vx) * scale, (rect.y - vy) * scale,
+                    rect.w * scale, rect.h * scale,
                     Color(rect.col.r, rect.col.g, rect.col.b, alpha));
     }
 
     void operator()(const RenderCirc &circ) {
-      DrawCircle(circ.x - vx, circ.y - vy, circ.r,
+      DrawCircle((circ.x - vx) * scale, (circ.y - vy) * scale, circ.r * scale,
                  Color(circ.col.r, circ.col.g, circ.col.b, alpha));
     }
-  } rend{vx, vy, 255}, ghost{vx, vy, 170};
+  } rend{vx, vy, scale, 255}, ghost{vx, vy, scale, 170};
 
   ClearBackground(WHITE);
 
@@ -109,7 +118,7 @@ void UIState::render() const {
   }
 
   if (IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
-    if (auto shape = tool.render_of(GetMouseX() + vx, GetMouseY() + vy)) {
+    if (auto shape = tool.render_of(GetMouseX() / scale + vx, GetMouseY() / scale + vy)) {
       std::visit(ghost, shape.value());
     }
   }

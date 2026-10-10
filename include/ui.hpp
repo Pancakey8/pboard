@@ -42,6 +42,7 @@ struct UIState {
   ToolUse tool{};
   std::vector<RenderShape> shapes{};
   float vx, vy;
+  float scale{1.0f};
 
   void update();
   void render() const;
