@@ -1,5 +1,5 @@
-#include "net.hpp"
-#include "ui.hpp"
+#include "menu.hpp"
+#include "whiteboard.hpp"
 #include <raylib.h>
 
 int main() {
@@ -8,14 +8,32 @@ int main() {
   SetWindowState(FLAG_WINDOW_RESIZABLE);
   SetTargetFPS(60);
 
-  pboard::net::ClientState client{0, 0};
-  pboard::ui::UIState ui{client};
+  int sd{-1};
 
-  while (!WindowShouldClose()) {
-    ui.update();
+  {
+    pboard::menu::MenuState menu{};
 
-    BeginDrawing();
-    ui.render();
-    EndDrawing();
+    while (!WindowShouldClose()) {
+      menu.update(sd);
+      if (sd != -1) {
+        break;
+      }
+
+      BeginDrawing();
+      menu.render();
+      EndDrawing();
+    }
+  }
+
+  {
+    pboard::whiteboard::Whiteboard board{0};
+
+    while (!WindowShouldClose()) {
+      board.update();
+
+      BeginDrawing();
+      board.render();
+      EndDrawing();
+    }
   }
 }

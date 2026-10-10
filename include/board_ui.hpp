@@ -4,7 +4,7 @@
 #include "shape.hpp"
 #include <optional>
 
-namespace pboard::ui {
+namespace pboard::board_ui {
 constexpr float MIN_SIZE = 10;
 
 struct ToolUse {

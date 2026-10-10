@@ -1,10 +1,10 @@
-#include "ui.hpp"
+#include "board_ui.hpp"
 #include "net.hpp"
 #include <algorithm>
 #include <cmath>
 #include <raylib.h>
 
-namespace pboard::ui {
+namespace pboard::board_ui {
 
 std::optional<shape::Shape> ToolUse::render_of(float xm, float ym) const {
   switch (selection) {
