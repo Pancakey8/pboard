@@ -5,7 +5,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(raylib 5.5 REQUIRED)
 
-add_executable(pboard src/main.cpp src/ui.cpp)
+add_executable(pboard src/main.cpp src/ui.cpp src/net.cpp)
 target_compile_features(pboard PUBLIC cxx_std_23)
 target_include_directories(pboard PRIVATE include/)
 target_compile_options(pboard PRIVATE -Wall -Wextra)

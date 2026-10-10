@@ -1,17 +1,17 @@
 #include "ui.hpp"
+#include "net.hpp"
 #include <algorithm>
 #include <cmath>
-#include <ranges>
 #include <raylib.h>
 
 namespace pboard::ui {
 
-std::optional<RenderShape> ToolUse::render_of(float xm, float ym) const {
+std::optional<shape::Shape> ToolUse::render_of(float xm, float ym) const {
   switch (selection) {
   case Tool::PAN:
     break;
   case Tool::LINE: {
-    RenderLine line{x0, y0, xm, ym, line_thickness, color};
+    shape::Line line{x0, y0, xm, ym, line_thickness, color};
     if (std::hypot(line.x1 - line.x0, line.y1 - line.y0) > MIN_SIZE)
       return line;
   } break;
@@ -19,12 +19,12 @@ std::optional<RenderShape> ToolUse::render_of(float xm, float ym) const {
     auto [x0, x1] = std::minmax(this->x0, xm);
     auto [y0, y1] = std::minmax(this->y0, ym);
     if ((y1 - y0) > MIN_SIZE && (x1 - x0) > MIN_SIZE)
-      return RenderRect{x0, y0, x1 - x0, y1 - y0, color};
+      return shape::Rect{x0, y0, x1 - x0, y1 - y0, color};
   } break;
   case Tool::CIRC: {
     float r = std::hypot(xm - x0, ym - y0);
     if (r > MIN_SIZE)
-      return RenderCirc{x0, y0, r, color};
+      return shape::Circ{x0, y0, r, color};
   } break;
   case Tool::SELECT:
     break;
@@ -33,11 +33,11 @@ std::optional<RenderShape> ToolUse::render_of(float xm, float ym) const {
   return {};
 }
 
-bool point_in(float x, float y, const RenderShape &shape) {
+bool point_in(float x, float y, const shape::Shape &shape) {
   struct {
     float x, y;
 
-    bool operator()(const RenderLine &line) {
+    bool operator()(const shape::Line &line) {
       float ab_x = line.x1 - line.x0;
       float ab_y = line.y1 - line.y0;
 
@@ -61,12 +61,12 @@ bool point_in(float x, float y, const RenderShape &shape) {
       return d <= r;
     }
 
-    bool operator()(const RenderRect &rect) {
+    bool operator()(const shape::Rect &rect) {
       return (rect.x <= x && x <= rect.x + rect.w) &&
              (rect.y <= y && y <= rect.y + rect.h);
     }
 
-    bool operator()(const RenderCirc &circ) {
+    bool operator()(const shape::Circ &circ) {
       auto d = std::hypot(circ.x - x, circ.y - y);
       return d <= circ.r;
     }
@@ -96,11 +96,10 @@ void UIState::update() {
   if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) &&
       tool.selection == ToolUse::Tool::SELECT) {
     bool found{false};
-    for (const auto &[i, shape] :
-         shapes | std::views::enumerate | std::views::reverse) {
-      if (point_in(tool.x0, tool.y0, shape)) {
+    for (const auto &[id, obj] : std::views::reverse(client)) {
+      if (point_in(tool.x0, tool.y0, obj.shape)) {
         found = true;
-        shape_targ = i;
+        shape_targ = id;
         break;
       }
     }
@@ -112,7 +111,7 @@ void UIState::update() {
   if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
     if (auto shape =
             tool.render_of(GetMouseX() / scale + vx, GetMouseY() / scale + vy))
-      shapes.emplace_back(shape.value());
+      client.push_back(shape.value(), client.last);
   }
 
   if (tool.selection == ToolUse::Tool::PAN &&
@@ -123,7 +122,7 @@ void UIState::update() {
   }
 
   if (shape_targ && IsKeyPressed(KEY_DELETE)) {
-    shapes.erase(shapes.begin() + shape_targ.value());
+    client.erase(shape_targ.value());
     shape_targ = {};
   }
 
@@ -137,19 +136,19 @@ void UIState::update() {
     tool.line_thickness = std::max(1.0f, tool.line_thickness);
   }
 
-  if (tool.selection != ToolUse::Tool::PAN && IsKeyPressed(KEY_ONE)) {
+  if (IsKeyPressed(KEY_ONE)) {
     tool.color = {0, 0, 0};
   }
 
-  if (tool.selection != ToolUse::Tool::PAN && IsKeyPressed(KEY_TWO)) {
+  if (IsKeyPressed(KEY_TWO)) {
     tool.color = {255, 0, 0};
   }
 
-  if (tool.selection != ToolUse::Tool::PAN && IsKeyPressed(KEY_THREE)) {
+  if (IsKeyPressed(KEY_THREE)) {
     tool.color = {0, 255, 0};
   }
 
-  if (tool.selection != ToolUse::Tool::PAN && IsKeyPressed(KEY_FOUR)) {
+  if (IsKeyPressed(KEY_FOUR)) {
     tool.color = {0, 0, 255};
   }
 }
@@ -163,7 +162,7 @@ void UIState::render() const {
     float alpha;
     bool is_hl{false};
 
-    void operator()(const RenderLine &line) {
+    void operator()(const shape::Line &line) {
       if (is_hl) {
         float ab_x = line.x1 - line.x0;
         float ab_y = line.y1 - line.y0;
@@ -182,7 +181,7 @@ void UIState::render() const {
                  Color(line.col.r, line.col.g, line.col.b, alpha));
     }
 
-    void operator()(const RenderRect &rect) {
+    void operator()(const shape::Rect &rect) {
       if (is_hl)
         DrawRectangle((rect.x - vx - 2.0f) * scale,
                       (rect.y - vy - 2.0f) * scale, (rect.w + 4.0f) * scale,
@@ -193,7 +192,7 @@ void UIState::render() const {
                     Color(rect.col.r, rect.col.g, rect.col.b, alpha));
     }
 
-    void operator()(const RenderCirc &circ) {
+    void operator()(const shape::Circ &circ) {
       if (is_hl)
         DrawCircle((circ.x - vx) * scale, (circ.y - vy) * scale,
                    (circ.r + 2.0f) * scale, HL_COLOR);
@@ -206,11 +205,11 @@ void UIState::render() const {
   ClearBackground(WHITE);
 
   RendVtor rend{vx, vy, scale, 255}, hl{vx, vy, scale, 255, true};
-  for (const auto &[i, shape] : shapes | std::views::enumerate) {
-    if (shape_targ == i) {
-      std::visit(hl, shape);
+  for (const auto &[id, obj] : client) {
+    if (shape_targ == id) {
+      std::visit(hl, obj.shape);
     } else {
-      std::visit(rend, shape);
+      std::visit(rend, obj.shape);
     }
   }
 
