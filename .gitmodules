@@ -1,3 +1,6 @@
 [submodule "3rd/asio"]
 	path = 3rd/asio
 	url = git@github.com:chriskohlhoff/asio.git
+[submodule "3rd/stduuid"]
+	path = 3rd/stduuid
+	url = git@github.com:mariusbancila/stduuid.git

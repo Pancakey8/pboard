@@ -2,19 +2,37 @@
 
 #include "shape.hpp"
 #include <asio.hpp>
+#include <compare>
 #include <cstdint>
 #include <flat_map>
+#include <uuid.h>
 
 namespace pboard::net {
 
-using ClientId = std::uint32_t;
+using ClientId = uuids::uuid;
 using Generation = std::uint32_t;
 
 struct ObjectId {
-  ClientId owner{static_cast<ClientId>(-1)};
+  ClientId owner{};
   Generation gen{static_cast<Generation>(-1)};
 
-  auto operator<=>(const ObjectId &) const = default;
+  friend constexpr std::strong_ordering operator<=>(const ObjectId &lhs,
+                                                    const ObjectId &rhs) {
+    if (lhs.owner < rhs.owner)
+      return std::strong_ordering::less;
+    if (rhs.owner < lhs.owner)
+      return std::strong_ordering::greater;
+
+    if (lhs.gen < rhs.gen)
+      return std::strong_ordering::less;
+    if (rhs.gen < lhs.gen)
+      return std::strong_ordering::greater;
+
+    return std::strong_ordering::equal;
+  }
+
+  friend constexpr bool operator==(const ObjectId &,
+                                   const ObjectId &) = default;
 };
 
 constexpr ObjectId OBJ_NONE{};
@@ -23,7 +41,7 @@ struct Object {
   shape::Shape shape;
   ObjectId origin;
   ObjectId prev, next;
-  bool deleted{false};
+  ObjectId deleted_by{OBJ_NONE};
 };
 
 struct Message {
@@ -34,12 +52,16 @@ struct Message {
   };
 
   struct Delete {
-    ObjectId id;
+    ObjectId by;
+    ObjectId target;
   };
 
-  struct Hi {};
+  struct Hi {
+    ClientId ask;
+  };
 
   struct Ih {
+    bool permit;
     ClientId assign;
   };
 
@@ -52,25 +74,45 @@ struct Message {
   std::string to_string() const;
 };
 
+struct BufferedMessage {
+  asio::ip::udp::endpoint sender;
+  Message msg;
+  ObjectId depends;
+};
+
+constexpr std::uint32_t WINDOW_MAX = 32;
+
+struct VersionWindow {
+  // [0, prefix) -> true.
+  Generation prefix = 0;
+  // [prefix, prefix + WINDOW_MAX) -> wip[i - prefix]
+  std::vector<bool> wip = std::vector(WINDOW_MAX, false);
+  // [prefix + WINDOW_MAX, ..) -> dropped
+
+  void compact();
+};
+
 struct ClientState {
   asio::io_context &io_context;
   asio::ip::udp::socket sock;
 
   bool is_host;
   std::vector<asio::ip::udp::endpoint> host_eps{};
-  ClientId ids{1};
 
-  ClientId self{static_cast<ClientId>(-1)};
+  ClientId self{}, asking{};
   Generation gen{0};
+  std::flat_map<ClientId, VersionWindow> versions{};
 
-  std::flat_map<ClientId, Generation> version{}; // TODO This
   std::flat_map<ObjectId, Object> objs{};
   ObjectId head{OBJ_NONE};
   ObjectId last{OBJ_NONE};
 
+  std::vector<BufferedMessage> buffer{};
+
   void push_back(shape::Shape shape, ObjectId origin);
   void insert(ObjectId id, Object obj, ObjectId origin);
   void erase(ObjectId id);
+  void flush_buffer();
 
   void intro();
   void update();
@@ -135,7 +177,7 @@ struct ClientState {
     void skip_deleted(bool forward) {
       while (id_ != OBJ_NONE) {
         auto it = state_->objs.find(id_);
-        if (it == state_->objs.end() || !it->second.deleted)
+        if (it == state_->objs.end() || it->second.deleted_by == OBJ_NONE)
           break;
         id_ = forward ? it->second.next : it->second.prev;
       }

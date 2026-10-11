@@ -3,6 +3,7 @@
 #include <bit>
 #include <concepts>
 #include <cstddef>
+#include <optional>
 #include <print>
 
 namespace pboard::net {
@@ -80,6 +81,8 @@ void ClientState::insert(ObjectId id, Object obj, ObjectId origin) {
   } else {
     objs.at(next).prev = id;
   }
+
+  flush_buffer();
 }
 
 void ClientState::push_back(shape::Shape shape, ObjectId origin) {
@@ -112,8 +115,9 @@ void ClientState::push_back(shape::Shape shape, ObjectId origin) {
 
 void ClientState::erase(ObjectId id) {
   if (auto it = objs.find(id); it != objs.end()) {
-    it->second.deleted = true;
-    Message msg{Message::Delete{id}};
+    ObjectId by{self, gen++};
+    it->second.deleted_by = by;
+    Message msg{Message::Delete{by, id}};
     std::vector<std::uint8_t> buf{};
     msg.serialize(buf);
     if (is_host) {
@@ -132,14 +136,34 @@ void ClientState::erase(ObjectId id) {
         std::println("LOG: Failed to send to host");
       }
     }
+
+    flush_buffer();
   }
+}
+
+void ClientState::flush_buffer() {
+  bool progress{false};
+  do {
+    for (auto it = buffer.begin(); it != buffer.end();) {
+      if (objs.contains(it->depends)) {
+        auto bm = *it;
+        buffer.erase(it);
+        progress = true;
+        handle(bm.sender, bm.msg);
+        break;
+      } else {
+        ++it;
+      }
+    }
+  } while (progress);
 }
 
 void ClientState::intro() {
   if (is_host) {
-    self = 0;
+    self = uuids::uuid_system_generator{}();
   } else {
-    Message msg{Message::Hi{}};
+    asking = uuids::uuid_system_generator{}();
+    Message msg{Message::Hi{asking}};
     std::vector<std::uint8_t> buf;
     msg.serialize(buf);
     asio::error_code ec;
@@ -156,19 +180,56 @@ void ClientState::handle(asio::ip::udp::endpoint sender, Message msg) {
     ClientState &self;
 
     void operator()(const Message::Create &data) {
-      self.insert(data.id, Object{data.shape, data.after, OBJ_NONE, OBJ_NONE},
-                  data.after);
-    }
+      self.versions.try_emplace(data.id.owner);
 
-    void operator()(const Message::Delete &data) {
-      if (auto it = self.objs.find(data.id); it != self.objs.end()) {
-        it->second.deleted = true;
+      if (self.objs.contains(data.after) || data.after == OBJ_NONE) {
+        auto &ver = self.versions[data.id.owner];
+        if (data.id.gen < ver.prefix)
+          return;
+        if (data.id.gen >= ver.prefix + WINDOW_MAX) {
+          std::println("Creation past the window?");
+          return; // TODO: Disconnected? synchronise here
+        }
+        if (ver.wip[data.id.gen - ver.prefix])
+          return;
+        self.insert(data.id, Object{data.shape, data.after, OBJ_NONE, OBJ_NONE},
+                    data.after);
+        ver.wip[data.id.gen - ver.prefix] = true;
+        ver.compact();
+      } else {
+        std::println("Buffering creation ({}, {})", data.id.owner, data.id.gen);
+        self.buffer.push_back(BufferedMessage{sender, {data}, data.after});
       }
     }
 
-    void operator()(const Message::Hi) {
+    void operator()(const Message::Delete &data) {
+      self.versions.try_emplace(data.by.owner);
+
+      if (auto it = self.objs.find(data.target); it != self.objs.end()) {
+        auto &ver = self.versions[data.by.owner];
+        if (data.by.gen < ver.prefix)
+          return;
+        if (data.by.gen >= ver.prefix + WINDOW_MAX) {
+          std::println("Deletion past the window?");
+          return; // TODO: Disconnected? synchronise here
+        }
+        if (ver.wip[data.by.gen - ver.prefix])
+          return;
+        it->second.deleted_by = data.by;
+        ver.wip[data.by.gen - ver.prefix] = true;
+        ver.compact();
+        self.flush_buffer();
+      } else {
+        std::println("Buffering deletion ({}, {})", data.target.owner,
+                     data.target.gen);
+        self.buffer.push_back(BufferedMessage{sender, {data}, data.target});
+      }
+    }
+
+    void operator()(const Message::Hi &data) {
       if (self.is_host) {
-        Message msg{Message::Ih{self.ids++}};
+        // TODO with versions:
+        Message msg{Message::Ih{true, data.ask}};
         std::vector<std::uint8_t> buf;
         msg.serialize(buf);
         asio::error_code ec;
@@ -180,9 +241,11 @@ void ClientState::handle(asio::ip::udp::endpoint sender, Message msg) {
     }
 
     void operator()(const Message::Ih &data) {
-      if (!self.is_host) {
+      bool asked_it = data.assign == self.asking;
+      if (!self.is_host && asked_it && data.permit) {
         self.self = data.assign;
       }
+      self.asking = {};
     }
   } vtor{sender, *this};
 
@@ -233,9 +296,27 @@ void ClientState::update() {
     std::println("LOG: Socket receive failed");
   }
 
-  if (self == static_cast<ClientId>(-1)) {
+  if (self.is_nil() && asking.is_nil()) {
     intro();
   }
+}
+
+void VersionWindow::compact() {
+  Generation slide = 0;
+  for (auto b : wip) {
+    if (b) {
+      slide++;
+    } else {
+      break;
+    }
+  }
+
+  if (slide == 0)
+    return;
+
+  prefix += slide;
+  std::copy(wip.begin() + slide, wip.end(), wip.begin());
+  std::fill(wip.end() - slide, wip.end(), false);
 }
 
 template <typename T>
@@ -246,6 +327,12 @@ void serialize_num(T n, std::vector<std::uint8_t> &out) {
     std::ranges::reverse(bytes);
   }
   out.insert(out.end(), bytes.begin(), bytes.end());
+}
+
+void serialize_id(ClientId id, std::vector<std::uint8_t> &out) {
+  auto bs = id.as_bytes();
+  const auto *ptr = reinterpret_cast<const std::uint8_t *>(bs.data());
+  out.insert(out.end(), ptr, ptr + bs.size());
 }
 
 void serialize_shape(shape::Shape shape, std::vector<std::uint8_t> &out) {
@@ -304,29 +391,33 @@ void Message::serialize(std::vector<std::uint8_t> &out) {
     void operator()(const Create &data) {
       out.push_back('C');
       out.push_back('R');
-      serialize_num(data.id.owner, out);
+      serialize_id(data.id.owner, out);
       serialize_num(data.id.gen, out);
-      serialize_num(data.after.owner, out);
+      serialize_id(data.after.owner, out);
       serialize_num(data.after.gen, out);
       serialize_shape(data.shape, out);
     }
 
-    void operator()(const Hi) {
+    void operator()(const Hi &data) {
       out.push_back('H');
       out.push_back('I');
+      serialize_id(data.ask, out);
     }
 
     void operator()(const Ih &data) {
       out.push_back('I');
       out.push_back('H');
-      serialize_num(data.assign, out);
+      out.push_back(data.permit ? 'T' : 'F');
+      serialize_id(data.assign, out);
     }
 
     void operator()(const Delete &data) {
       out.push_back('D');
       out.push_back('L');
-      serialize_num(data.id.owner, out);
-      serialize_num(data.id.gen, out);
+      serialize_id(data.by.owner, out);
+      serialize_num(data.by.gen, out);
+      serialize_id(data.target.owner, out);
+      serialize_num(data.target.gen, out);
     }
   } serial{out};
 
@@ -355,6 +446,19 @@ bool deserialize_num(T &val, auto &it, auto end) {
     std::ranges::reverse(bytes);
   }
   val = std::bit_cast<T>(bytes);
+  return true;
+}
+
+bool deserialize_id(ClientId &val, auto &it, auto end) {
+  if (std::distance(it, end) < 16) {
+    return false;
+  }
+
+  std::array<std::uint8_t, 16> bytes;
+  std::copy_n(it, 16, bytes.begin());
+  it += 16;
+
+  val = uuids::uuid{bytes};
   return true;
 }
 
@@ -428,11 +532,11 @@ std::optional<Message::Var> deserialize_var(auto &it, auto end) {
 
   if (tag1 == 'C' && tag2 == 'R') {
     Message::Create data;
-    if (!deserialize_num(data.id.owner, it, end))
+    if (!deserialize_id(data.id.owner, it, end))
       return std::nullopt;
     if (!deserialize_num(data.id.gen, it, end))
       return std::nullopt;
-    if (!deserialize_num(data.after.owner, it, end))
+    if (!deserialize_id(data.after.owner, it, end))
       return std::nullopt;
     if (!deserialize_num(data.after.gen, it, end))
       return std::nullopt;
@@ -444,17 +548,36 @@ std::optional<Message::Var> deserialize_var(auto &it, auto end) {
 
     return Message::Var{data};
   } else if (tag1 == 'H' && tag2 == 'I') {
-    return Message::Var{Message::Hi{}};
+    Message::Hi data;
+    if (!deserialize_id(data.ask, it, end))
+      return std::nullopt;
+    return Message::Var{data};
   } else if (tag1 == 'I' && tag2 == 'H') {
     Message::Ih data;
-    if (!deserialize_num(data.assign, it, end))
+    if (std::distance(it, end) < 1)
+      return std::nullopt;
+    switch (*it++) {
+    case 'T':
+      data.permit = true;
+      break;
+    case 'F':
+      data.permit = false;
+      break;
+    default:
+      return std::nullopt;
+    }
+    if (!deserialize_id(data.assign, it, end))
       return std::nullopt;
     return Message::Var{data};
   } else if (tag1 == 'D' && tag2 == 'L') {
     Message::Delete data;
-    if (!deserialize_num(data.id.owner, it, end))
+    if (!deserialize_id(data.by.owner, it, end))
       return std::nullopt;
-    if (!deserialize_num(data.id.gen, it, end))
+    if (!deserialize_num(data.by.gen, it, end))
+      return std::nullopt;
+    if (!deserialize_id(data.target.owner, it, end))
+      return std::nullopt;
+    if (!deserialize_num(data.target.gen, it, end))
       return std::nullopt;
     return Message::Var{data};
   }
@@ -500,11 +623,14 @@ std::string Message::to_string() const {
                          "TODO SHAPE");
     }
     std::string operator()(const Delete &data) {
-      return std::format("Delete ({}, {})", data.id.owner, data.id.gen);
+      return std::format("Delete ({}, {}) by ({}, {})", data.target.owner,
+                         data.target.gen, data.by.owner, data.by.gen);
     }
-    std::string operator()(const Hi) { return "Hi"; }
+    std::string operator()(const Hi &data) {
+      return std::format("Hi {}", data.ask);
+    }
     std::string operator()(const Ih &data) {
-      return std::format("Ih {}", data.assign);
+      return std::format("Ih {}, {}", data.permit, data.assign);
     }
   } vtor;
 
