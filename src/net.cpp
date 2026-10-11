@@ -1,6 +1,7 @@
 #include "net.hpp"
 #include "shape.hpp"
 #include <bit>
+#include <chrono>
 #include <concepts>
 #include <cstddef>
 #include <optional>
@@ -90,6 +91,7 @@ void ClientState::push_back(shape::Shape shape, ObjectId origin) {
   Object obj{shape, origin, OBJ_NONE, OBJ_NONE};
 
   Message msg{Message::Create{id, shape, origin}};
+  messages[id] = msg;
   std::vector<std::uint8_t> buf{};
   msg.serialize(buf);
 
@@ -118,6 +120,7 @@ void ClientState::erase(ObjectId id) {
     ObjectId by{self, gen++};
     it->second.deleted_by = by;
     Message msg{Message::Delete{by, id}};
+    messages[id] = msg;
     std::vector<std::uint8_t> buf{};
     msg.serialize(buf);
     if (is_host) {
@@ -144,6 +147,7 @@ void ClientState::erase(ObjectId id) {
 void ClientState::flush_buffer() {
   bool progress{false};
   do {
+    progress = false;
     for (auto it = buffer.begin(); it != buffer.end();) {
       if (objs.contains(it->depends)) {
         auto bm = *it;
@@ -156,6 +160,44 @@ void ClientState::flush_buffer() {
       }
     }
   } while (progress);
+}
+
+void ClientState::request_all() {
+  for (const auto &[owner, ver] : versions) {
+    if (ver.cap == 0)
+      continue;
+
+    for (std::uint32_t i = 0; i < ver.cap; ++i) {
+      if (ver.received[i])
+        continue;
+
+      ObjectId id = {owner, ver.prefix + i};
+      if (!last_requested[id].active || last_requested[id].expired()) {
+        using namespace std::chrono_literals;
+        last_requested[id] = Timer{3s};
+        Message msg{Message::Fetch{id}};
+        std::vector<std::uint8_t> buf{};
+        msg.serialize(buf);
+        if (is_host) {
+          asio::error_code ec;
+          for (const auto &ep : host_eps) {
+            sock.send_to(asio::buffer(buf), ep, 0, ec);
+            if (ec) {
+              std::println("LOG: Failed to send to {}:{}",
+                           ep.address().to_string(), ep.port());
+            }
+          }
+        } else {
+          asio::error_code ec;
+          sock.send(asio::buffer(buf), 0, ec);
+          if (ec) {
+            std::println("LOG: Failed to send to host");
+          }
+        }
+        std::println("LOG: Requesting ({}, {})", id.owner, id.gen);
+      }
+    }
+  }
 }
 
 void ClientState::intro() {
@@ -180,10 +222,15 @@ void ClientState::handle(asio::ip::udp::endpoint sender, Message msg) {
     ClientState &self;
 
     void operator()(const Message::Create &data) {
-      self.versions.try_emplace(data.id.owner);
+      self.messages[data.id] = {data};
+      auto &ver = self.versions[data.id.owner];
+
+      if (data.id.gen >= ver.prefix && data.id.gen < ver.prefix + WINDOW_MAX) {
+        ver.cap = std::max(ver.cap, data.id.gen - ver.prefix + 1);
+        ver.received[data.id.gen - ver.prefix] = true;
+      }
 
       if (self.objs.contains(data.after) || data.after == OBJ_NONE) {
-        auto &ver = self.versions[data.id.owner];
         if (data.id.gen < ver.prefix)
           return;
         if (data.id.gen >= ver.prefix + WINDOW_MAX) {
@@ -203,10 +250,15 @@ void ClientState::handle(asio::ip::udp::endpoint sender, Message msg) {
     }
 
     void operator()(const Message::Delete &data) {
-      self.versions.try_emplace(data.by.owner);
+      self.messages[data.by] = {data};
+      auto &ver = self.versions[data.by.owner];
+
+      if (data.by.gen >= ver.prefix && data.by.gen < ver.prefix + WINDOW_MAX) {
+        ver.cap = std::max(ver.cap, data.by.gen - ver.prefix + 1);
+        ver.received[data.by.gen - ver.prefix] = true;
+      }
 
       if (auto it = self.objs.find(data.target); it != self.objs.end()) {
-        auto &ver = self.versions[data.by.owner];
         if (data.by.gen < ver.prefix)
           return;
         if (data.by.gen >= ver.prefix + WINDOW_MAX) {
@@ -246,6 +298,29 @@ void ClientState::handle(asio::ip::udp::endpoint sender, Message msg) {
         self.self = data.assign;
       }
       self.asking = {};
+    }
+
+    void operator()(const Message::Fetch &data) {
+      std::println("Someone fetched ({}, {})", data.id.owner, data.id.gen);
+
+      if (auto it = self.messages.find(data.id); it != self.messages.end()) {
+        std::vector<std::uint8_t> buf{};
+        auto resp_msg = it->second;
+        resp_msg.serialize(buf);
+
+        asio::error_code ec;
+        if (self.is_host) {
+          self.sock.send_to(asio::buffer(buf), sender, 0, ec);
+          if (ec) {
+            std::println("LOG: Failed to send fetch response to peer");
+          }
+        } else {
+          self.sock.send(asio::buffer(buf), 0, ec);
+          if (ec) {
+            std::println("LOG: Failed to send fetch response to host");
+          }
+        }
+      }
     }
   } vtor{sender, *this};
 
@@ -299,6 +374,8 @@ void ClientState::update() {
   if (self.is_nil() && asking.is_nil()) {
     intro();
   }
+
+  request_all();
 }
 
 void VersionWindow::compact() {
@@ -317,6 +394,9 @@ void VersionWindow::compact() {
   prefix += slide;
   std::copy(wip.begin() + slide, wip.end(), wip.begin());
   std::fill(wip.end() - slide, wip.end(), false);
+  std::copy(received.begin() + slide, received.end(), received.begin());
+  std::fill(received.end() - slide, received.end(), false);
+  cap = (cap > slide) ? cap - slide : 0;
 }
 
 template <typename T>
@@ -418,6 +498,13 @@ void Message::serialize(std::vector<std::uint8_t> &out) {
       serialize_num(data.by.gen, out);
       serialize_id(data.target.owner, out);
       serialize_num(data.target.gen, out);
+    }
+
+    void operator()(const Fetch &data) {
+      out.push_back('F');
+      out.push_back('C');
+      serialize_id(data.id.owner, out);
+      serialize_num(data.id.gen, out);
     }
   } serial{out};
 
@@ -580,6 +667,13 @@ std::optional<Message::Var> deserialize_var(auto &it, auto end) {
     if (!deserialize_num(data.target.gen, it, end))
       return std::nullopt;
     return Message::Var{data};
+  } else if (tag1 == 'F' && tag2 == 'C') {
+    Message::Fetch data;
+    if (!deserialize_id(data.id.owner, it, end))
+      return std::nullopt;
+    if (!deserialize_num(data.id.gen, it, end))
+      return std::nullopt;
+    return Message::Var{data};
   }
 
   return std::nullopt;
@@ -631,6 +725,9 @@ std::string Message::to_string() const {
     }
     std::string operator()(const Ih &data) {
       return std::format("Ih {}, {}", data.permit, data.assign);
+    }
+    std::string operator()(const Fetch &data) {
+      return std::format("Fetch ({}, {})", data.id.owner, data.id.gen);
     }
   } vtor;
 

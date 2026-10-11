@@ -2,6 +2,7 @@
 
 #include "shape.hpp"
 #include <asio.hpp>
+#include <chrono>
 #include <compare>
 #include <cstdint>
 #include <flat_map>
@@ -65,7 +66,11 @@ struct Message {
     ClientId assign;
   };
 
-  using Var = std::variant<Create, Hi, Ih, Delete>;
+  struct Fetch {
+    ObjectId id;
+  };
+
+  using Var = std::variant<Create, Hi, Ih, Delete, Fetch>;
   Var data;
 
   void serialize(std::vector<std::uint8_t> &out);
@@ -85,11 +90,30 @@ constexpr std::uint32_t WINDOW_MAX = 32;
 struct VersionWindow {
   // [0, prefix) -> true.
   Generation prefix = 0;
-  // [prefix, prefix + WINDOW_MAX) -> wip[i - prefix]
+  // [prefix, prefix + WINDOW_MAX) -> wip[gen - prefix]
   std::vector<bool> wip = std::vector(WINDOW_MAX, false);
+  // [prefix, prefix + WINDOW_MAX) -> received[gen - prefix]
+  std::vector<bool> received = std::vector(WINDOW_MAX, false);
   // [prefix + WINDOW_MAX, ..) -> dropped
 
+  // gens below prefix + cap, cap in [0, WINDOW_MAX]
+  Generation cap = 0;
+
   void compact();
+};
+
+struct Timer {
+  std::chrono::steady_clock::time_point expires_at;
+  bool active = false;
+
+  Timer() = default;
+
+  Timer(std::chrono::steady_clock::duration d)
+      : expires_at{std::chrono::steady_clock::now() + d}, active{true} {}
+
+  bool expired() const {
+    return std::chrono::steady_clock::now() >= expires_at;
+  }
 };
 
 struct ClientState {
@@ -102,8 +126,10 @@ struct ClientState {
   ClientId self{}, asking{};
   Generation gen{0};
   std::flat_map<ClientId, VersionWindow> versions{};
+  std::flat_map<ObjectId, Timer> last_requested{};
 
   std::flat_map<ObjectId, Object> objs{};
+  std::flat_map<ObjectId, Message> messages{};
   ObjectId head{OBJ_NONE};
   ObjectId last{OBJ_NONE};
 
@@ -113,6 +139,7 @@ struct ClientState {
   void insert(ObjectId id, Object obj, ObjectId origin);
   void erase(ObjectId id);
   void flush_buffer();
+  void request_all();
 
   void intro();
   void update();
