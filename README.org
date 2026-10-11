@@ -1,0 +1,22 @@
+* PBoard
+
+Collaborative whiteboard app
+
+** Networking tasks
+
+- [ ] Do version exchanges of prefixes
+- [ ] Bulk fetch on connection
+- [ ] Bulk fetch on window overflow
+- [ ] Garbage collection
+- [ ] Refactor protocol + (de)serialization into another file
+- [ ] Refactor network send-receive into helper functions
+
+** Feature tasks
+
+- [ ] Tool selection UI
+- [ ] Color wheel and color hotbar
+- [ ] Text shape
+- [ ] Bezier curves
+- [ ] Hollow rectangle/circle
+- [ ] Nicknames & peer list
+- [ ] Real-time peer cursor
