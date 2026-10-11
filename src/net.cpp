@@ -120,7 +120,7 @@ void ClientState::erase(ObjectId id) {
     ObjectId by{self, gen++};
     it->second.deleted_by = by;
     Message msg{Message::Delete{by, id}};
-    messages[id] = msg;
+    messages[by] = msg;
     std::vector<std::uint8_t> buf{};
     msg.serialize(buf);
     if (is_host) {
