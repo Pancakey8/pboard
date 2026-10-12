@@ -245,6 +245,23 @@ void ClientState::handle(asio::ip::udp::endpoint sender, Message msg) {
         self.send_all(std::move(resp_msg));
       }
     }
+
+    void operator()(const Message::Versions &data) {
+      // TODO: Use for GC
+      auto &ver = self.versions[data.sender];
+      if (data.gen >= ver.prefix && data.gen <= ver.prefix + WINDOW_MAX) {
+        ver.cap = std::max(ver.cap, data.gen - ver.prefix);
+      }
+
+      for (const auto &[owner, gen] : data.certain) {
+        if (owner == self.self)
+          continue;
+        auto &ver = self.versions[owner];
+        if (gen >= ver.prefix && gen <= ver.prefix + WINDOW_MAX) {
+          ver.cap = std::max(ver.cap, gen - ver.prefix);
+        }
+      }
+    }
   } vtor{sender, *this};
 
   std::visit(vtor, msg.data);
@@ -296,6 +313,18 @@ void ClientState::update() {
 
   if (self.is_nil() && asking.is_nil()) {
     intro();
+  }
+
+  if (!self.is_nil() && (!version_timer.active || version_timer.expired())) {
+    using namespace std::chrono_literals;
+    version_timer = Timer{3s};
+    std::flat_map<ClientId, Generation> certain{};
+    for (const auto &[owner, ver] : versions) {
+      certain[owner] = ver.prefix;
+    }
+    std::println("LOG: Exchange ({}, {}): {}", self, gen, certain);
+    Message msg{Message::Versions{self, gen, std::move(certain)}};
+    send_all(std::move(msg));
   }
 
   request_all();

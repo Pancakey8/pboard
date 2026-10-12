@@ -2,6 +2,7 @@
 #include "shape.hpp"
 #include <compare>
 #include <cstdint>
+#include <flat_map>
 #include <uuid.h>
 
 namespace pboard::net {
@@ -66,7 +67,13 @@ struct Message {
     ObjectId id;
   };
 
-  using Var = std::variant<Create, Hi, Ih, Delete, Fetch>;
+  struct Versions {
+    ClientId sender;
+    Generation gen;
+    std::flat_map<ClientId, Generation> certain{};
+  };
+
+  using Var = std::variant<Create, Hi, Ih, Delete, Fetch, Versions>;
   Var data;
 
   void serialize(std::vector<std::uint8_t> &out);

@@ -57,6 +57,7 @@ struct ClientState {
   Generation gen{0};
   std::flat_map<ClientId, VersionWindow> versions{};
   std::flat_map<ObjectId, Timer> last_requested{};
+  Timer version_timer{};
 
   std::flat_map<ObjectId, Object> objs{};
   std::flat_map<ObjectId, Message> messages{};

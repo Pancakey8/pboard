@@ -4,7 +4,7 @@ Collaborative whiteboard app
 
 ** Networking tasks
 
-- [ ] Do version exchanges of prefixes
+- [X] Do version exchanges of prefixes
 - [ ] Bulk fetch on connection
 - [ ] Bulk fetch on window overflow
 - [ ] Garbage collection
