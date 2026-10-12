@@ -8,7 +8,7 @@ Collaborative whiteboard app
 - [ ] Bulk fetch on connection
 - [ ] Bulk fetch on window overflow
 - [ ] Garbage collection
-- [ ] Refactor protocol + (de)serialization into another file
+- [X] Refactor protocol + (de)serialization into another file
 - [ ] Refactor network send-receive into helper functions
 
 ** Feature tasks

@@ -12,7 +12,7 @@ target_compile_definitions(asio INTERFACE ASIO_STANDALONE)
 set(UUID_SYSTEM_GENERATOR ON CACHE BOOL "Enable system uuid generator" FORCE)
 add_subdirectory(3rd/stduuid)
 
-add_executable(pboard src/main.cpp src/board_ui.cpp src/net.cpp src/whiteboard.cpp src/menu.cpp)
+add_executable(pboard src/main.cpp src/board_ui.cpp src/net.cpp src/whiteboard.cpp src/menu.cpp src/protocol.cpp)
 target_compile_features(pboard PUBLIC cxx_std_23)
 target_include_directories(pboard PRIVATE include/)
 target_compile_options(pboard PRIVATE -Wall -Wextra)
