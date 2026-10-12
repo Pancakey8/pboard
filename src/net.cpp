@@ -90,25 +90,7 @@ void ClientState::push_back(shape::Shape shape, ObjectId origin) {
 
   Message msg{Message::Create{id, shape, origin}};
   messages[id] = msg;
-  std::vector<std::uint8_t> buf{};
-  msg.serialize(buf);
-
-  if (is_host) {
-    asio::error_code ec;
-    for (const auto &ep : host_eps) {
-      sock.send_to(asio::buffer(buf), ep, 0, ec);
-      if (ec) {
-        std::println("LOG: Failed to send to {}:{}", ep.address().to_string(),
-                     ep.port());
-      }
-    }
-  } else {
-    asio::error_code ec;
-    sock.send(asio::buffer(buf), 0, ec);
-    if (ec) {
-      std::println("LOG: Failed to send to host");
-    }
-  }
+  send_all(std::move(msg));
 
   insert(id, obj, origin);
 }
@@ -119,24 +101,7 @@ void ClientState::erase(ObjectId id) {
     it->second.deleted_by = by;
     Message msg{Message::Delete{by, id}};
     messages[by] = msg;
-    std::vector<std::uint8_t> buf{};
-    msg.serialize(buf);
-    if (is_host) {
-      asio::error_code ec;
-      for (const auto &ep : host_eps) {
-        sock.send_to(asio::buffer(buf), ep, 0, ec);
-        if (ec) {
-          std::println("LOG: Failed to send to {}:{}", ep.address().to_string(),
-                       ep.port());
-        }
-      }
-    } else {
-      asio::error_code ec;
-      sock.send(asio::buffer(buf), 0, ec);
-      if (ec) {
-        std::println("LOG: Failed to send to host");
-      }
-    }
+    send_all(std::move(msg));
 
     flush_buffer();
   }
@@ -174,24 +139,7 @@ void ClientState::request_all() {
         using namespace std::chrono_literals;
         last_requested[id] = Timer{3s};
         Message msg{Message::Fetch{id}};
-        std::vector<std::uint8_t> buf{};
-        msg.serialize(buf);
-        if (is_host) {
-          asio::error_code ec;
-          for (const auto &ep : host_eps) {
-            sock.send_to(asio::buffer(buf), ep, 0, ec);
-            if (ec) {
-              std::println("LOG: Failed to send to {}:{}",
-                           ep.address().to_string(), ep.port());
-            }
-          }
-        } else {
-          asio::error_code ec;
-          sock.send(asio::buffer(buf), 0, ec);
-          if (ec) {
-            std::println("LOG: Failed to send to host");
-          }
-        }
+        send_all(std::move(msg));
         std::println("LOG: Requesting ({}, {})", id.owner, id.gen);
       }
     }
@@ -204,13 +152,8 @@ void ClientState::intro() {
   } else {
     asking = uuids::uuid_system_generator{}();
     Message msg{Message::Hi{asking}};
-    std::vector<std::uint8_t> buf;
-    msg.serialize(buf);
-    asio::error_code ec;
-    sock.send(asio::buffer(buf), 0, ec);
-    if (ec) {
-      std::println("LOG: Failed to send hi, intro");
-    }
+    // TODO: Rethink for p2p
+    send_all(std::move(msg));
   }
 }
 
@@ -280,13 +223,7 @@ void ClientState::handle(asio::ip::udp::endpoint sender, Message msg) {
       if (self.is_host) {
         // TODO with versions:
         Message msg{Message::Ih{true, data.ask}};
-        std::vector<std::uint8_t> buf;
-        msg.serialize(buf);
-        asio::error_code ec;
-        self.sock.send_to(asio::buffer(buf), sender, 0, ec);
-        if (ec) {
-          std::println("LOG: Failed to respond to Hi");
-        }
+        self.send_to(sender, std::move(msg));
       }
     }
 
@@ -304,20 +241,8 @@ void ClientState::handle(asio::ip::udp::endpoint sender, Message msg) {
       if (auto it = self.messages.find(data.id); it != self.messages.end()) {
         std::vector<std::uint8_t> buf{};
         auto resp_msg = it->second;
-        resp_msg.serialize(buf);
-
-        asio::error_code ec;
-        if (self.is_host) {
-          self.sock.send_to(asio::buffer(buf), sender, 0, ec);
-          if (ec) {
-            std::println("LOG: Failed to send fetch response to peer");
-          }
-        } else {
-          self.sock.send(asio::buffer(buf), 0, ec);
-          if (ec) {
-            std::println("LOG: Failed to send fetch response to host");
-          }
-        }
+        // TODO: Should be send_to?
+        self.send_all(std::move(resp_msg));
       }
     }
   } vtor{sender, *this};
@@ -395,6 +320,38 @@ void VersionWindow::compact() {
   std::copy(received.begin() + slide, received.end(), received.begin());
   std::fill(received.end() - slide, received.end(), false);
   cap = (cap > slide) ? cap - slide : 0;
+}
+
+void ClientState::send_to(asio::ip::udp::endpoint target, Message msg) {
+  std::vector<std::uint8_t> buf;
+  msg.serialize(buf);
+  asio::error_code ec;
+  sock.send_to(asio::buffer(buf), target, 0, ec);
+  if (ec) {
+    std::println("LOG: Failed to send to target");
+  }
+}
+
+void ClientState::send_all(Message msg) {
+  std::vector<std::uint8_t> buf{};
+  msg.serialize(buf);
+
+  if (is_host) {
+    asio::error_code ec;
+    for (const auto &ep : host_eps) {
+      sock.send_to(asio::buffer(buf), ep, 0, ec);
+      if (ec) {
+        std::println("LOG: Failed to send to {}:{}", ep.address().to_string(),
+                     ep.port());
+      }
+    }
+  } else {
+    asio::error_code ec;
+    sock.send(asio::buffer(buf), 0, ec);
+    if (ec) {
+      std::println("LOG: Failed to send to host");
+    }
+  }
 }
 
 } // namespace pboard::net

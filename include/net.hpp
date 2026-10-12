@@ -75,6 +75,9 @@ struct ClientState {
   void update();
   void handle(asio::ip::udp::endpoint sender, Message msg);
 
+  void send_to(asio::ip::udp::endpoint target, Message msg);
+  void send_all(Message msg);
+
   template <bool IsConst> class Iterator {
   public:
     using iterator_category = std::bidirectional_iterator_tag;
