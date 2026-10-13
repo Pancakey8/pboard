@@ -42,6 +42,17 @@ struct Object {
   ObjectId deleted_by{OBJ_NONE};
 };
 
+struct ObjectData {
+  shape::Shape shape;
+  ObjectId origin;
+  ObjectId deleted_by{OBJ_NONE};
+};
+
+constexpr std::uint32_t BULK_SIZE = 10;
+
+// TODO: Good size?
+static_assert((sizeof(ObjectData) + sizeof(ObjectId)) * BULK_SIZE + 10 <= 1024);
+
 struct Message {
   struct Create {
     ObjectId id;
@@ -73,7 +84,24 @@ struct Message {
     std::flat_map<ClientId, Generation> certain{};
   };
 
-  using Var = std::variant<Create, Hi, Ih, Delete, Fetch, Versions>;
+  struct BulkRequest {
+    ClientId from;
+    std::flat_map<ClientId, Generation> certain{};
+  };
+
+  struct BulkResponse {
+    std::uint32_t index;
+    std::uint32_t total;
+    std::vector<std::pair<ObjectId, ObjectData>> bulk{};
+  };
+
+  struct BulkNAck {
+    ClientId from;
+    std::uint32_t index;
+  };
+
+  using Var = std::variant<Create, Hi, Ih, Delete, Fetch, Versions, BulkRequest,
+                           BulkResponse, BulkNAck>;
   Var data;
 
   void serialize(std::vector<std::uint8_t> &out);

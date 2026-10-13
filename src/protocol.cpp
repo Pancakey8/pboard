@@ -122,6 +122,41 @@ void Message::serialize(std::vector<std::uint8_t> &out) {
         serialize_num(gen, out);
       }
     }
+
+    void operator()(const BulkRequest &data) {
+      out.push_back('B');
+      out.push_back('Q');
+      serialize_id(data.from, out);
+      serialize_num(static_cast<std::uint32_t>(data.certain.size()), out);
+      for (const auto &[owner, gen] : data.certain) {
+        serialize_id(owner, out);
+        serialize_num(gen, out);
+      }
+    }
+
+    void operator()(const BulkResponse &data) {
+      out.push_back('B');
+      out.push_back('A');
+      serialize_num(data.index, out);
+      serialize_num(data.total, out);
+      serialize_num(static_cast<std::uint32_t>(data.bulk.size()), out);
+      for (const auto &[id, obj] : data.bulk) {
+        serialize_id(id.owner, out);
+        serialize_num(id.gen, out);
+        serialize_shape(obj.shape, out);
+        serialize_id(obj.origin.owner, out);
+        serialize_num(obj.origin.gen, out);
+        serialize_id(obj.deleted_by.owner, out);
+        serialize_num(obj.deleted_by.gen, out);
+      }
+    }
+
+    void operator()(const BulkNAck &data) {
+      out.push_back('B');
+      out.push_back('N');
+      serialize_id(data.from, out);
+      serialize_num(data.index, out);
+    }
   } serial{out};
 
   std::visit(serial, data);
@@ -313,6 +348,66 @@ std::optional<Message::Var> deserialize_var(auto &it, auto end) {
       data.certain[owner] = gen;
     }
     return Message::Var{data};
+  } else if (tag1 == 'B' && tag2 == 'Q') {
+    Message::BulkRequest data;
+    if (!deserialize_id(data.from, it, end))
+      return std::nullopt;
+    std::uint32_t len;
+    if (!deserialize_num(len, it, end))
+      return std::nullopt;
+    auto cont = std::move(data.certain).extract();
+    cont.keys.reserve(len);
+    cont.values.reserve(len);
+    data.certain.replace(std::move(cont.keys), std::move(cont.values));
+    for (std::uint32_t i = 0; i < len; ++i) {
+      ClientId owner;
+      Generation gen;
+      if (!deserialize_id(owner, it, end))
+        return std::nullopt;
+      if (!deserialize_num(gen, it, end))
+        return std::nullopt;
+      data.certain[owner] = gen;
+    }
+    return Message::Var{data};
+  } else if (tag1 == 'B' && tag2 == 'A') {
+    Message::BulkResponse data;
+    if (!deserialize_num(data.index, it, end))
+      return std::nullopt;
+    if (!deserialize_num(data.total, it, end))
+      return std::nullopt;
+    std::uint32_t len;
+    if (!deserialize_num(len, it, end))
+      return std::nullopt;
+    data.bulk.reserve(len);
+    for (std::uint32_t i = 0; i < len; ++i) {
+      ObjectId id;
+      ObjectData obj;
+      if (!deserialize_id(id.owner, it, end))
+        return std::nullopt;
+      if (!deserialize_num(id.gen, it, end))
+        return std::nullopt;
+      auto shape_opt = deserialize_shape(it, end);
+      if (!shape_opt)
+        return std::nullopt;
+      obj.shape = *shape_opt;
+      if (!deserialize_id(obj.origin.owner, it, end))
+        return std::nullopt;
+      if (!deserialize_num(obj.origin.gen, it, end))
+        return std::nullopt;
+      if (!deserialize_id(obj.deleted_by.owner, it, end))
+        return std::nullopt;
+      if (!deserialize_num(obj.deleted_by.gen, it, end))
+        return std::nullopt;
+      data.bulk.push_back({id, std::move(obj)});
+    }
+    return Message::Var{data};
+  } else if (tag1 == 'B' && tag2 == 'N') {
+    Message::BulkNAck data;
+    if (!deserialize_id(data.from, it, end))
+      return std::nullopt;
+    if (!deserialize_num(data.index, it, end))
+      return std::nullopt;
+    return Message::Var{data};
   }
 
   return std::nullopt;
@@ -371,6 +466,24 @@ std::string Message::to_string() const {
     std::string operator()(const Versions &data) {
       return std::format("Versions ({}, {}): {}", data.sender, data.gen,
                          data.certain);
+    }
+    std::string operator()(const BulkRequest &data) {
+      return std::format("BulkRequest {}: {}", data.from, data.certain);
+    }
+    std::string operator()(const BulkResponse &data) {
+      std::vector<std::pair<std::string, std::string>> bulk_str{};
+      for (const auto &[id, obj] : data.bulk) {
+        bulk_str.push_back(
+            {std::format("({}, {})", id.owner, id.gen),
+             std::format("TODO SHAPE at ({}, {}) / Deleted: ({}, {})",
+                         obj.origin.owner, obj.origin.gen, obj.deleted_by.owner,
+                         obj.deleted_by.gen)});
+      }
+      return std::format("BulkResponse {}/{}: {}", data.index, data.total,
+                         bulk_str);
+    }
+    std::string operator()(const BulkNAck &data) {
+      return std::format("BulkNAck {}: {}", data.from, data.index);
     }
   } vtor;
 

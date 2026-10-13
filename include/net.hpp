@@ -1,11 +1,11 @@
 #pragma once
 
+#include "protocol.hpp"
 #include "shape.hpp"
 #include <asio.hpp>
 #include <chrono>
 #include <cstdint>
 #include <flat_map>
-#include "protocol.hpp"
 
 namespace pboard::net {
 
@@ -46,6 +46,24 @@ struct Timer {
   }
 };
 
+struct SyncState {
+  bool active;
+  asio::ip::udp::endpoint to;
+  std::vector<std::pair<ObjectId, ObjectData>> frozen;
+  std::uint32_t sent;
+
+  std::uint32_t len();
+};
+
+struct MySync {
+  bool active;
+  asio::ip::udp::endpoint peer;
+  std::uint32_t len;
+  std::vector<std::pair<ObjectId, ObjectData>> have;
+  std::vector<bool> chunks;
+  Timer last;
+};
+
 struct ClientState {
   asio::io_context &io_context;
   asio::ip::udp::socket sock;
@@ -66,6 +84,11 @@ struct ClientState {
 
   std::vector<BufferedMessage> buffer{};
 
+  std::flat_map<ClientId, SyncState>
+      sync_with{};
+
+  MySync sync{};
+
   void push_back(shape::Shape shape, ObjectId origin);
   void insert(ObjectId id, Object obj, ObjectId origin);
   void erase(ObjectId id);
@@ -75,6 +98,9 @@ struct ClientState {
   void intro();
   void update();
   void handle(asio::ip::udp::endpoint sender, Message msg);
+  void synchronise(asio::ip::udp::endpoint from);
+  void check_sync();
+  void sync_peers();
 
   void send_to(asio::ip::udp::endpoint target, Message msg);
   void send_all(Message msg);

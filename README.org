@@ -6,7 +6,7 @@ Collaborative whiteboard app
 
 - [X] Do version exchanges of prefixes
 - [ ] Bulk fetch on connection
-- [ ] Bulk fetch on window overflow
+- [-] Bulk fetch on window overflow
 - [ ] Garbage collection
 - [X] Refactor protocol + (de)serialization into another file
 - [X] Refactor network send-receive into helper functions

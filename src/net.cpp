@@ -1,5 +1,7 @@
 #include "net.hpp"
+#include "protocol.hpp"
 #include "shape.hpp"
+#include <algorithm>
 #include <chrono>
 #include <cstddef>
 #include <optional>
@@ -166,18 +168,21 @@ void ClientState::handle(asio::ip::udp::endpoint sender, Message msg) {
       self.messages[data.id] = {data};
       auto &ver = self.versions[data.id.owner];
 
+      if (data.id.gen < ver.prefix)
+        return;
+
+      if (data.id.gen >= ver.prefix + WINDOW_MAX) {
+        std::println("Creation past the window?");
+        self.synchronise(sender);
+        return; // TODO: Disconnected? synchronise here
+      }
+
       if (data.id.gen >= ver.prefix && data.id.gen < ver.prefix + WINDOW_MAX) {
         ver.cap = std::max(ver.cap, data.id.gen - ver.prefix + 1);
         ver.received[data.id.gen - ver.prefix] = true;
       }
 
       if (self.objs.contains(data.after) || data.after == OBJ_NONE) {
-        if (data.id.gen < ver.prefix)
-          return;
-        if (data.id.gen >= ver.prefix + WINDOW_MAX) {
-          std::println("Creation past the window?");
-          return; // TODO: Disconnected? synchronise here
-        }
         if (ver.wip[data.id.gen - ver.prefix])
           return;
         self.insert(data.id, Object{data.shape, data.after, OBJ_NONE, OBJ_NONE},
@@ -194,18 +199,21 @@ void ClientState::handle(asio::ip::udp::endpoint sender, Message msg) {
       self.messages[data.by] = {data};
       auto &ver = self.versions[data.by.owner];
 
+      if (data.by.gen < ver.prefix)
+        return;
+
+      if (data.by.gen >= ver.prefix + WINDOW_MAX) {
+        std::println("Deletion past the window?");
+        self.synchronise(sender);
+        return; // TODO: Disconnected? synchronise here
+      }
+
       if (data.by.gen >= ver.prefix && data.by.gen < ver.prefix + WINDOW_MAX) {
         ver.cap = std::max(ver.cap, data.by.gen - ver.prefix + 1);
         ver.received[data.by.gen - ver.prefix] = true;
       }
 
       if (auto it = self.objs.find(data.target); it != self.objs.end()) {
-        if (data.by.gen < ver.prefix)
-          return;
-        if (data.by.gen >= ver.prefix + WINDOW_MAX) {
-          std::println("Deletion past the window?");
-          return; // TODO: Disconnected? synchronise here
-        }
         if (ver.wip[data.by.gen - ver.prefix])
           return;
         it->second.deleted_by = data.by;
@@ -248,6 +256,7 @@ void ClientState::handle(asio::ip::udp::endpoint sender, Message msg) {
 
     void operator()(const Message::Versions &data) {
       // TODO: Use for GC
+      // TODO: Check if far out of date
       auto &ver = self.versions[data.sender];
       if (data.gen >= ver.prefix && data.gen <= ver.prefix + WINDOW_MAX) {
         ver.cap = std::max(ver.cap, data.gen - ver.prefix);
@@ -261,6 +270,78 @@ void ClientState::handle(asio::ip::udp::endpoint sender, Message msg) {
           ver.cap = std::max(ver.cap, gen - ver.prefix);
         }
       }
+    }
+
+    void operator()(const Message::BulkRequest &data) {
+      auto &s = self.sync_with[data.from];
+
+      if (s.active)
+        return;
+
+      s.active = true;
+      s.to = sender;
+      s.sent = 0;
+      s.frozen.clear();
+
+      for (const auto &[id, obj] : self) {
+        auto it = data.certain.find(id.owner);
+        if (it == data.certain.end() || id.gen >= it->second) {
+          s.frozen.push_back(
+              {id, ObjectData{obj.shape, obj.origin, obj.deleted_by}});
+        }
+      }
+    }
+
+    void operator()(const Message::BulkResponse &data) {
+      if (self.sync.active && self.sync.len == 0) {
+        self.sync.len = data.total;
+        self.sync.chunks.resize(data.total);
+        self.sync.have.resize(data.total * BULK_SIZE);
+      }
+
+      if (data.index >= self.sync.len)
+        return;
+
+      bool last_chunk = (data.index == data.total - 1);
+      if (last_chunk) {
+        if (data.bulk.empty() || data.bulk.size() > BULK_SIZE)
+          return;
+      } else {
+        if (data.bulk.size() != BULK_SIZE)
+          return;
+      }
+
+      if (self.sync.chunks[data.index])
+        return;
+
+      self.sync.chunks[data.index] = true;
+
+      std::copy(data.bulk.begin(), data.bulk.end(),
+                self.sync.have.begin() + (data.index * BULK_SIZE));
+
+      if (last_chunk && data.bulk.size() < BULK_SIZE) {
+        self.sync.have.resize((data.total - 1) * BULK_SIZE + data.bulk.size());
+      }
+
+      using namespace std::chrono_literals;
+      self.sync.last = Timer{1s};
+    }
+
+    void operator()(const Message::BulkNAck &data) {
+      auto &sync = self.sync_with[data.from];
+      if (!sync.active)
+        return;
+      if (data.index >= sync.len())
+        return;
+      auto remain = std::min(static_cast<std::size_t>(BULK_SIZE),
+                             sync.frozen.size() - BULK_SIZE * data.index);
+      std::vector<std::pair<ObjectId, ObjectData>> bulk{};
+      bulk.resize(remain);
+      std::copy_n(sync.frozen.begin() + BULK_SIZE * data.index, remain,
+                  bulk.begin());
+      Message msg{Message::BulkResponse{
+          data.index, self.sync_with[data.from].len(), std::move(bulk)}};
+      self.send_to(sender, std::move(msg));
     }
   } vtor{sender, *this};
 
@@ -327,7 +408,142 @@ void ClientState::update() {
     send_all(std::move(msg));
   }
 
-  request_all();
+  if (!sync.active) {
+    request_all();
+  } else {
+    check_sync();
+  }
+
+  sync_peers();
+}
+
+void ClientState::synchronise(asio::ip::udp::endpoint from) {
+  std::flat_map<ClientId, Generation> certain{};
+  for (const auto &[owner, ver] : versions) {
+    certain[owner] = ver.prefix;
+  }
+  Message msg{Message::BulkRequest{self, std::move(certain)}};
+  send_to(from, std::move(msg));
+
+  using namespace std::chrono_literals;
+  buffer.clear();
+  last_requested.clear();
+  sync = {.active = true,
+          .peer = from,
+          .len = 0,
+          .have = {},
+          .chunks = {},
+          .last = Timer{3s}};
+}
+
+void ClientState::check_sync() {
+  if (sync.len == 0) {
+    if (sync.last.expired()) {
+      synchronise(sync.peer);
+    }
+    return;
+  }
+
+  bool have_all{true};
+
+  for (std::uint32_t i = 0; i < sync.len; ++i) {
+    if (sync.chunks[i]) {
+      continue;
+    }
+
+    have_all = false;
+    if (sync.last.expired()) {
+      Message msg{Message::BulkNAck{self, i}};
+      send_to(sync.peer, msg);
+      using namespace std::chrono_literals;
+      sync.last = Timer{1s};
+    }
+  }
+
+  if (have_all) {
+    std::flat_map<ObjectId, ObjectData> remaining;
+    for (const auto &[id, data] : sync.have) {
+      remaining[id] = data;
+    }
+    std::vector<std::pair<ObjectId, ObjectData>> ordered;
+    ordered.reserve(remaining.size());
+    bool progress = true;
+    while (!remaining.empty() && progress) {
+      progress = false;
+      for (auto it = remaining.begin(); it != remaining.end();) {
+        const auto &[id, data] = *it;
+
+        bool satisfied =
+            (data.origin == OBJ_NONE) || (objs.contains(data.origin)) ||
+            (std::find_if(ordered.begin(), ordered.end(), [&data](auto x) {
+               return x.first == data.origin;
+             }) != ordered.end());
+
+        if (satisfied) {
+          ordered.push_back({id, data});
+          remaining.erase(it);
+          it = remaining.begin();
+          progress = true;
+        } else {
+          ++it;
+        }
+      }
+    }
+
+    if (!remaining.empty()) {
+      // TODO: Fetch these?
+      std::println("LOG: Sync failed");
+      for (const auto &[id, data] : remaining) {
+        std::println("  Missing: ({}, {}), waiting on origin ({}, {})",
+                     id.owner, id.gen, data.origin.owner, data.origin.gen);
+      }
+      sync = {};
+      return;
+    }
+
+    for (const auto &[id, data] : ordered) {
+      if (!objs.contains(id)) {
+        insert(id,
+               Object{data.shape, data.origin, OBJ_NONE, OBJ_NONE,
+                      data.deleted_by},
+               data.origin);
+      }
+      // TODO: Error prone?
+      auto &ver = versions[id.owner];
+      ver.prefix = std::max(ver.prefix, id.gen);
+      std::fill(ver.wip.begin(), ver.wip.end(), false);
+      std::fill(ver.received.begin(), ver.received.end(), false);
+      ver.cap = 0;
+    }
+
+    sync = {};
+  }
+}
+
+void ClientState::sync_peers() {
+  for (const auto &[id, sync] : sync_with) {
+    if (!sync.active)
+      continue;
+    if (sync.sent >= sync.len()) {
+      sync.active = false;
+      continue;
+    }
+
+    auto remain = std::min(static_cast<std::size_t>(BULK_SIZE),
+                           sync.frozen.size() - sync.sent * BULK_SIZE);
+
+    std::vector<std::pair<ObjectId, ObjectData>> bulk{};
+    bulk.resize(remain);
+    std::copy_n(sync.frozen.begin() + sync.sent * BULK_SIZE, remain,
+                bulk.begin());
+    Message msg{Message::BulkResponse{sync.sent, sync.len(), std::move(bulk)}};
+    send_to(sync.to, std::move(msg));
+    sync.sent++;
+  }
+}
+
+std::uint32_t SyncState::len() {
+  return (frozen.size() + (BULK_SIZE - 1)) / BULK_SIZE;
 }
 
 void VersionWindow::compact() {
