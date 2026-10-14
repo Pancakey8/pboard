@@ -174,7 +174,7 @@ void ClientState::handle(asio::ip::udp::endpoint sender, Message msg) {
       if (data.id.gen >= ver.prefix + WINDOW_MAX) {
         std::println("Creation past the window?");
         self.synchronise(sender);
-        return; // TODO: Disconnected? synchronise here
+        return;
       }
 
       if (data.id.gen >= ver.prefix && data.id.gen < ver.prefix + WINDOW_MAX) {
@@ -205,7 +205,7 @@ void ClientState::handle(asio::ip::udp::endpoint sender, Message msg) {
       if (data.by.gen >= ver.prefix + WINDOW_MAX) {
         std::println("Deletion past the window?");
         self.synchronise(sender);
-        return; // TODO: Disconnected? synchronise here
+        return;
       }
 
       if (data.by.gen >= ver.prefix && data.by.gen < ver.prefix + WINDOW_MAX) {
@@ -256,10 +256,12 @@ void ClientState::handle(asio::ip::udp::endpoint sender, Message msg) {
 
     void operator()(const Message::Versions &data) {
       // TODO: Use for GC
-      // TODO: Check if far out of date
       auto &ver = self.versions[data.sender];
       if (data.gen >= ver.prefix && data.gen <= ver.prefix + WINDOW_MAX) {
         ver.cap = std::max(ver.cap, data.gen - ver.prefix);
+      } else {
+        self.synchronise(sender);
+        return;
       }
 
       for (const auto &[owner, gen] : data.certain) {
@@ -268,6 +270,9 @@ void ClientState::handle(asio::ip::udp::endpoint sender, Message msg) {
         auto &ver = self.versions[owner];
         if (gen >= ver.prefix && gen <= ver.prefix + WINDOW_MAX) {
           ver.cap = std::max(ver.cap, gen - ver.prefix);
+        } else {
+          self.synchronise(sender);
+          return;
         }
       }
     }
@@ -283,7 +288,7 @@ void ClientState::handle(asio::ip::udp::endpoint sender, Message msg) {
       s.sent = 0;
       s.frozen.clear();
 
-      for (const auto &[id, obj] : self) {
+      for (const auto &[id, obj] : self.objs) {
         auto it = data.certain.find(id.owner);
         if (it == data.certain.end() || id.gen >= it->second) {
           s.frozen.push_back(
@@ -418,6 +423,9 @@ void ClientState::update() {
 }
 
 void ClientState::synchronise(asio::ip::udp::endpoint from) {
+  if (sync.active)
+    return;
+
   std::flat_map<ClientId, Generation> certain{};
   for (const auto &[owner, ver] : versions) {
     certain[owner] = ver.prefix;
