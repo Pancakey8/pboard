@@ -5,11 +5,13 @@ Collaborative whiteboard app
 ** Networking tasks
 
 - [X] Do version exchanges of prefixes
-- [ ] Bulk fetch on connection
+- [-] Bulk fetch on connection
 - [X] Bulk fetch on window overflow
-- [ ] Garbage collection
+- [-] Garbage collection
 - [X] Refactor protocol + (de)serialization into another file
 - [X] Refactor network send-receive into helper functions
+- [ ] Mesh network
+- [ ] Fetch states may be stuck after GC
 
 ** Feature tasks
 

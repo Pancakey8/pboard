@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstddef>
+#include <flat_set>
 #include <optional>
 #include <print>
 
@@ -239,6 +240,7 @@ void ClientState::handle(asio::ip::udp::endpoint sender, Message msg) {
       bool asked_it = data.assign == self.asking;
       if (!self.is_host && asked_it && data.permit) {
         self.self = data.assign;
+        self.synchronise(sender);
       }
       self.asking = {};
     }
@@ -255,7 +257,18 @@ void ClientState::handle(asio::ip::udp::endpoint sender, Message msg) {
     }
 
     void operator()(const Message::Versions &data) {
-      // TODO: Use for GC
+      auto peer_ver = self.peer_versions.find(data.sender);
+      if (peer_ver != self.peer_versions.end() &&
+          peer_ver->second.last.expired()) {
+        // TODO: Stale client?
+        std::println("Stale client reconnected {}", data.sender);
+        return;
+      }
+
+      using namespace std::chrono_literals;
+      self.peer_versions[data.sender].last = Timer{10s};
+      self.peer_versions[data.sender].certain = data.certain;
+
       auto &ver = self.versions[data.sender];
       if (data.gen >= ver.prefix && data.gen <= ver.prefix + WINDOW_MAX) {
         ver.cap = std::max(ver.cap, data.gen - ver.prefix);
@@ -420,6 +433,90 @@ void ClientState::update() {
   }
 
   sync_peers();
+  cleanup();
+}
+
+void ClientState::cleanup() {
+  std::flat_map<ClientId, Generation> consensus{};
+
+  consensus[self] = gen;
+
+  for (const auto &[peer, ver] : versions) {
+    consensus[peer] = ver.prefix;
+  }
+
+  for (const auto &[owner, vers] : peer_versions) {
+    if (vers.last.expired())
+      continue;
+    for (const auto &[peer, ver] : vers.certain) {
+      consensus[peer] = std::min(consensus[peer], ver);
+    }
+  }
+
+  for (auto it = messages.begin(); it != messages.end();) {
+    if (it->first.gen < consensus[it->first.owner]) {
+      std::println("LOG: Clear message ({}, {})", it->first.owner,
+                   it->first.gen);
+      messages.erase(it);
+    } else {
+      ++it;
+    }
+  }
+
+  std::flat_set<ObjectId> removed;
+
+  for (const auto &[id, obj] : objs) {
+    if (obj.deleted_by != OBJ_NONE &&
+        obj.deleted_by.gen < consensus[obj.deleted_by.owner] &&
+        id.gen < consensus[id.owner]) {
+      removed.emplace(id);
+    }
+  }
+
+  auto resolve_prev = [&](ObjectId id) {
+    while (id != OBJ_NONE && removed.contains(id)) {
+      auto it = objs.find(id);
+      if (it == objs.end())
+        return OBJ_NONE;
+      id = it->second.prev;
+    }
+    return id;
+  };
+
+  auto resolve_next = [&](ObjectId id) {
+    while (id != OBJ_NONE && removed.contains(id)) {
+      auto it = objs.find(id);
+      if (it == objs.end())
+        return OBJ_NONE;
+      id = it->second.next;
+    }
+    return id;
+  };
+
+  for (const auto &[id, obj] : objs) {
+    if (removed.contains(id))
+      continue;
+
+    obj.prev = resolve_prev(obj.prev);
+    obj.next = resolve_next(obj.next);
+
+    while (obj.origin != OBJ_NONE && removed.contains(obj.origin)) {
+      auto it = objs.find(obj.origin);
+      if (it == objs.end()) {
+        obj.origin = OBJ_NONE;
+        break;
+      }
+      obj.origin = it->second.origin;
+    }
+  }
+
+  head = resolve_next(head);
+  last = resolve_prev(last);
+
+  for (ObjectId id : removed) {
+    std::println("LOG: Clear object ({}, {})", id.owner, id.gen);
+    objs.erase(id);
+  }
 }
 
 void ClientState::synchronise(asio::ip::udp::endpoint from) {

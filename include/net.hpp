@@ -64,6 +64,11 @@ struct MySync {
   Timer last;
 };
 
+struct PeerVersions {
+  Timer last;
+  std::flat_map<ClientId, Generation> certain;
+};
+
 struct ClientState {
   asio::io_context &io_context;
   asio::ip::udp::socket sock;
@@ -74,6 +79,7 @@ struct ClientState {
   ClientId self{}, asking{};
   Generation gen{0};
   std::flat_map<ClientId, VersionWindow> versions{};
+  std::flat_map<ClientId, PeerVersions> peer_versions{};
   std::flat_map<ObjectId, Timer> last_requested{};
   Timer version_timer{};
 
@@ -84,8 +90,7 @@ struct ClientState {
 
   std::vector<BufferedMessage> buffer{};
 
-  std::flat_map<ClientId, SyncState>
-      sync_with{};
+  std::flat_map<ClientId, SyncState> sync_with{};
 
   MySync sync{};
 
@@ -101,6 +106,7 @@ struct ClientState {
   void synchronise(asio::ip::udp::endpoint from);
   void check_sync();
   void sync_peers();
+  void cleanup();
 
   void send_to(asio::ip::udp::endpoint target, Message msg);
   void send_all(Message msg);
