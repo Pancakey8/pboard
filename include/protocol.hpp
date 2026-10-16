@@ -89,6 +89,11 @@ struct Message {
     std::flat_map<ClientId, Generation> certain{};
   };
 
+  struct BulkHeader {
+    std::uint32_t total;
+    std::flat_map<ClientId, Generation> certain{};
+  };
+
   struct BulkResponse {
     std::uint32_t index;
     std::uint32_t total;
@@ -100,8 +105,8 @@ struct Message {
     std::uint32_t index;
   };
 
-  using Var = std::variant<Create, Hi, Ih, Delete, Fetch, Versions, BulkRequest,
-                           BulkResponse, BulkNAck>;
+  using Var = std::variant<Create, Hi, Ih, Delete, Fetch, Versions, BulkHeader,
+                           BulkRequest, BulkResponse, BulkNAck>;
   Var data;
 
   void serialize(std::vector<std::uint8_t> &out);

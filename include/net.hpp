@@ -50,6 +50,7 @@ struct SyncState {
   bool active;
   asio::ip::udp::endpoint to;
   std::vector<std::pair<ObjectId, ObjectData>> frozen;
+  std::flat_map<ClientId, Generation> vers;
   std::uint32_t sent;
 
   std::uint32_t len();
@@ -61,6 +62,7 @@ struct MySync {
   std::uint32_t len;
   std::vector<std::pair<ObjectId, ObjectData>> have;
   std::vector<bool> chunks;
+  std::flat_map<ClientId, Generation> certains;
   Timer last;
 };
 

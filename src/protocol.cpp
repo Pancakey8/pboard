@@ -123,6 +123,17 @@ void Message::serialize(std::vector<std::uint8_t> &out) {
       }
     }
 
+    void operator()(const BulkHeader &data) {
+      out.push_back('B');
+      out.push_back('H');
+      serialize_num(data.total, out);
+      serialize_num(static_cast<std::uint32_t>(data.certain.size()), out);
+      for (const auto &[owner, gen] : data.certain) {
+        serialize_id(owner, out);
+        serialize_num(gen, out);
+      }
+    }
+
     void operator()(const BulkRequest &data) {
       out.push_back('B');
       out.push_back('Q');
@@ -348,6 +359,27 @@ std::optional<Message::Var> deserialize_var(auto &it, auto end) {
       data.certain[owner] = gen;
     }
     return Message::Var{data};
+  } else if (tag1 == 'B' && tag2 == 'H') {
+    Message::BulkHeader data;
+    if (!deserialize_num(data.total, it, end))
+      return std::nullopt;
+    std::uint32_t len;
+    if (!deserialize_num(len, it, end))
+      return std::nullopt;
+    auto cont = std::move(data.certain).extract();
+    cont.keys.reserve(len);
+    cont.values.reserve(len);
+    data.certain.replace(std::move(cont.keys), std::move(cont.values));
+    for (std::uint32_t i = 0; i < len; ++i) {
+      ClientId owner;
+      Generation gen;
+      if (!deserialize_id(owner, it, end))
+        return std::nullopt;
+      if (!deserialize_num(gen, it, end))
+        return std::nullopt;
+      data.certain[owner] = gen;
+    }
+    return Message::Var{data};
   } else if (tag1 == 'B' && tag2 == 'Q') {
     Message::BulkRequest data;
     if (!deserialize_id(data.from, it, end))
@@ -466,6 +498,9 @@ std::string Message::to_string() const {
     std::string operator()(const Versions &data) {
       return std::format("Versions ({}, {}): {}", data.sender, data.gen,
                          data.certain);
+    }
+    std::string operator()(const BulkHeader &data) {
+      return std::format("BulkHeader -/{}: {}", data.total, data.certain);
     }
     std::string operator()(const BulkRequest &data) {
       return std::format("BulkRequest {}: {}", data.from, data.certain);

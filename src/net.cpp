@@ -290,15 +290,37 @@ void ClientState::handle(asio::ip::udp::endpoint sender, Message msg) {
       }
     }
 
+    void operator()(const Message::BulkHeader &data) {
+      if (self.sync.active && self.sync.len == 0) {
+        self.sync.len = data.total;
+        self.sync.chunks.resize(data.total + 1, false);
+        self.sync.have.resize(data.total * BULK_SIZE);
+      }
+
+      if (self.sync.active) {
+        self.sync.chunks[0] = true;
+        self.sync.certains = data.certain;
+        using namespace std::chrono_literals;
+        self.sync.last = Timer{1s};
+      }
+    }
+
     void operator()(const Message::BulkRequest &data) {
       auto &s = self.sync_with[data.from];
 
       if (s.active)
         return;
 
+      std::flat_map<ClientId, Generation> certains;
+      certains[self.self] = self.gen;
+      for (const auto &[id, ver] : self.versions) {
+        certains[id] = ver.prefix;
+      }
+
       s.active = true;
       s.to = sender;
       s.sent = 0;
+      s.vers = certains;
       s.frozen.clear();
 
       for (const auto &[id, obj] : self.objs) {
@@ -313,7 +335,7 @@ void ClientState::handle(asio::ip::udp::endpoint sender, Message msg) {
     void operator()(const Message::BulkResponse &data) {
       if (self.sync.active && self.sync.len == 0) {
         self.sync.len = data.total;
-        self.sync.chunks.resize(data.total);
+        self.sync.chunks.resize(data.total + 1);
         self.sync.have.resize(data.total * BULK_SIZE);
       }
 
@@ -329,10 +351,10 @@ void ClientState::handle(asio::ip::udp::endpoint sender, Message msg) {
           return;
       }
 
-      if (self.sync.chunks[data.index])
+      if (self.sync.chunks[data.index + 1])
         return;
 
-      self.sync.chunks[data.index] = true;
+      self.sync.chunks[data.index + 1] = true;
 
       std::copy(data.bulk.begin(), data.bulk.end(),
                 self.sync.have.begin() + (data.index * BULK_SIZE));
@@ -349,16 +371,23 @@ void ClientState::handle(asio::ip::udp::endpoint sender, Message msg) {
       auto &sync = self.sync_with[data.from];
       if (!sync.active)
         return;
-      if (data.index >= sync.len())
+
+      if (data.index == 0) {
+        Message msg{Message::BulkHeader{sync.len(), sync.vers}};
+        self.send_to(sender, msg);
+        return;
+      }
+
+      uint32_t index = data.index;
+      if (index >= sync.len())
         return;
       auto remain = std::min(static_cast<std::size_t>(BULK_SIZE),
-                             sync.frozen.size() - BULK_SIZE * data.index);
+                             sync.frozen.size() - BULK_SIZE * index);
       std::vector<std::pair<ObjectId, ObjectData>> bulk{};
       bulk.resize(remain);
-      std::copy_n(sync.frozen.begin() + BULK_SIZE * data.index, remain,
+      std::copy_n(sync.frozen.begin() + BULK_SIZE * index, remain,
                   bulk.begin());
-      Message msg{Message::BulkResponse{
-          data.index, self.sync_with[data.from].len(), std::move(bulk)}};
+      Message msg{Message::BulkResponse{index, sync.len(), std::move(bulk)}};
       self.send_to(sender, std::move(msg));
     }
   } vtor{sender, *this};
@@ -538,6 +567,7 @@ void ClientState::synchronise(asio::ip::udp::endpoint from) {
           .len = 0,
           .have = {},
           .chunks = {},
+          .certains = {},
           .last = Timer{3s}};
 }
 
@@ -548,10 +578,11 @@ void ClientState::check_sync() {
     }
     return;
   }
+  std::println("{}", sync.chunks);
 
   bool have_all{true};
 
-  for (std::uint32_t i = 0; i < sync.len; ++i) {
+  for (std::uint32_t i = 0; i < sync.len + 1; ++i) {
     if (sync.chunks[i]) {
       continue;
     }
@@ -613,12 +644,11 @@ void ClientState::check_sync() {
                       data.deleted_by},
                data.origin);
       }
-      // TODO: Error prone?
-      auto &ver = versions[id.owner];
-      ver.prefix = std::max(ver.prefix, id.gen);
-      std::fill(ver.wip.begin(), ver.wip.end(), false);
-      std::fill(ver.received.begin(), ver.received.end(), false);
-      ver.cap = 0;
+    }
+
+    versions = {};
+    for (const auto &[id, pref] : sync.certains) {
+      versions[id].prefix = pref;
     }
 
     sync = {};
@@ -629,19 +659,26 @@ void ClientState::sync_peers() {
   for (const auto &[id, sync] : sync_with) {
     if (!sync.active)
       continue;
-    if (sync.sent >= sync.len()) {
+    if (sync.sent == 0) {
+      Message msg{Message::BulkHeader{sync.len(), sync.vers}};
+      send_to(sync.to, std::move(msg));
+      sync.sent++;
+      return;
+    }
+
+    auto i = sync.sent - 1;
+    if (i >= sync.len()) {
       sync.active = false;
       continue;
     }
 
     auto remain = std::min(static_cast<std::size_t>(BULK_SIZE),
-                           sync.frozen.size() - sync.sent * BULK_SIZE);
+                           sync.frozen.size() - i * BULK_SIZE);
 
     std::vector<std::pair<ObjectId, ObjectData>> bulk{};
     bulk.resize(remain);
-    std::copy_n(sync.frozen.begin() + sync.sent * BULK_SIZE, remain,
-                bulk.begin());
-    Message msg{Message::BulkResponse{sync.sent, sync.len(), std::move(bulk)}};
+    std::copy_n(sync.frozen.begin() + i * BULK_SIZE, remain, bulk.begin());
+    Message msg{Message::BulkResponse{i, sync.len(), std::move(bulk)}};
     send_to(sync.to, std::move(msg));
     sync.sent++;
   }
