@@ -11,8 +11,8 @@ struct Whiteboard {
   board_ui::UIState ui;
 
   explicit Whiteboard(asio::io_context &io_context,
-                      asio::ip::udp::socket &&sock, bool is_host)
-      : client{io_context, std::move(sock), is_host}, ui{client} {
+                      asio::ip::udp::socket &&sock, std::optional<asio::ip::udp::endpoint> initial_peer)
+      : client{io_context, std::move(sock), initial_peer}, ui{client} {
     client.intro();
   }
 

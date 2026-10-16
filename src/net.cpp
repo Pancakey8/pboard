@@ -150,13 +150,11 @@ void ClientState::request_all() {
 }
 
 void ClientState::intro() {
-  if (is_host) {
-    self = uuids::uuid_system_generator{}();
-  } else {
-    asking = uuids::uuid_system_generator{}();
-    Message msg{Message::Hi{asking}};
-    // TODO: Rethink for p2p
-    send_all(std::move(msg));
+  self = uuids::uuid_system_generator{}();
+
+  if (initial_peer) {
+    add_peer(*initial_peer);
+    send_to(*initial_peer, Message{Message::Hi{self}});
   }
 }
 
@@ -228,21 +226,36 @@ void ClientState::handle(asio::ip::udp::endpoint sender, Message msg) {
       }
     }
 
-    void operator()(const Message::Hi &data) {
-      if (self.is_host) {
-        // TODO with versions:
-        Message msg{Message::Ih{true, data.ask}};
-        self.send_to(sender, std::move(msg));
-      }
+    void operator()(const Message::Hi &) {
+      self.add_peer(sender);
+      Message msg{Message::Ih{self.peers}};
+      self.send_to(sender, std::move(msg));
+      std::vector<std::string> peers{};
+      for (const auto &peer : self.peers)
+        peers.push_back(
+            std::format("{}:{}", peer.address().to_string(), peer.port()));
+      std::println("LOG: Peers {}", peers);
     }
 
     void operator()(const Message::Ih &data) {
-      bool asked_it = data.assign == self.asking;
-      if (!self.is_host && asked_it && data.permit) {
-        self.self = data.assign;
-        self.synchronise(sender);
-      }
-      self.asking = {};
+      std::println("Ih sender={}:{}, initial_peer={}:{}",
+                   sender.address().to_string(), sender.port(),
+                   self.initial_peer ? self.initial_peer->address().to_string()
+                                     : "none",
+                   self.initial_peer ? self.initial_peer->port() : 0);
+      if (!self.initial_peer || sender != *self.initial_peer)
+        return;
+      std::println("LOG: Got introduced");
+      self.initial_peer.reset();
+      self.add_peer(sender);
+      for (const auto &peer : data.eps)
+        self.add_peer(peer);
+      std::vector<std::string> peers{};
+      for (const auto &peer : self.peers)
+        peers.push_back(
+            std::format("{}:{}", peer.address().to_string(), peer.port()));
+      std::println("LOG: Peers {}", peers);
+      self.synchronise(sender);
     }
 
     void operator()(const Message::Fetch &data) {
@@ -251,8 +264,7 @@ void ClientState::handle(asio::ip::udp::endpoint sender, Message msg) {
       if (auto it = self.messages.find(data.id); it != self.messages.end()) {
         std::vector<std::uint8_t> buf{};
         auto resp_msg = it->second;
-        // TODO: Should be send_to?
-        self.send_all(std::move(resp_msg));
+        self.send_to(sender, std::move(resp_msg));
       }
     }
 
@@ -400,31 +412,10 @@ void ClientState::update() {
   asio::ip::udp::endpoint ep;
   asio::error_code ec;
 
-  std::size_t recv;
-
-  if (is_host) {
-    recv = sock.receive_from(asio::buffer(buffer), ep, 0, ec);
-  } else {
-    recv = sock.receive(asio::buffer(buffer), 0, ec);
-    ep = sock.remote_endpoint();
-  }
+  std::size_t recv = sock.receive_from(asio::buffer(buffer), ep, 0, ec);
 
   if (!ec && recv > 0) {
     std::span<const std::uint8_t> packet{buffer.data(), recv};
-
-    if (is_host) {
-      auto it = std::find(host_eps.begin(), host_eps.end(), ep);
-      if (it == host_eps.end()) {
-        std::println("Discovered {}:{}", ep.address().to_string(), ep.port());
-        host_eps.push_back(ep);
-      }
-
-      for (const auto &other : host_eps) {
-        if (other == ep)
-          continue;
-        sock.send_to(asio::buffer(packet), other, 0, ec);
-      }
-    }
 
     auto msg = Message::deserialize(packet);
     if (msg) {
@@ -433,13 +424,11 @@ void ClientState::update() {
     } else {
       std::println("Failed to decode message");
     }
-  } else if (ec == asio::error::would_block || ec == asio::error::try_again) {
-    // OK
-  } else {
+  } else if (ec != asio::error::would_block && ec != asio::error::try_again) {
     std::println("LOG: Socket receive failed");
   }
 
-  if (self.is_nil() && asking.is_nil()) {
+  if (self.is_nil()) {
     intro();
   }
 
@@ -709,6 +698,16 @@ void VersionWindow::compact() {
   cap = (cap > slide) ? cap - slide : 0;
 }
 
+void ClientState::add_peer(asio::ip::udp::endpoint peer) {
+  if (peer == sock.local_endpoint())
+    return;
+
+  if (std::find(peers.begin(), peers.end(), peer) != peers.end())
+    return;
+
+  peers.push_back(peer);
+}
+
 void ClientState::send_to(asio::ip::udp::endpoint target, Message msg) {
   std::vector<std::uint8_t> buf;
   msg.serialize(buf);
@@ -723,20 +722,12 @@ void ClientState::send_all(Message msg) {
   std::vector<std::uint8_t> buf{};
   msg.serialize(buf);
 
-  if (is_host) {
-    asio::error_code ec;
-    for (const auto &ep : host_eps) {
-      sock.send_to(asio::buffer(buf), ep, 0, ec);
-      if (ec) {
-        std::println("LOG: Failed to send to {}:{}", ep.address().to_string(),
-                     ep.port());
-      }
-    }
-  } else {
-    asio::error_code ec;
-    sock.send(asio::buffer(buf), 0, ec);
+  asio::error_code ec;
+  for (const auto &ep : peers) {
+    sock.send_to(asio::buffer(buf), ep, 0, ec);
     if (ec) {
-      std::println("LOG: Failed to send to host");
+      std::println("LOG: Failed to send to {}:{}", ep.address().to_string(),
+                   ep.port());
     }
   }
 }

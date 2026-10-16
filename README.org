@@ -8,9 +8,17 @@ Collaborative whiteboard app
 - [X] Bulk fetch on connection
 - [X] Bulk fetch on window overflow
 - [-] Garbage collection
+  - [X] Consensus version
+  - [X] Message history cleanup
+  - [X] Rearrange for dead objects
+  - [ ] Clean up various timers and intermediary state
+  - [ ] Resize down unnecessary data
+  - [ ] Handle stale peers
 - [X] Refactor protocol + (de)serialization into another file
 - [X] Refactor network send-receive into helper functions
-- [ ] Mesh network
+- [-] Mesh network
+  - [X] Mesh topology
+  - [ ] Peer discovery
 - [X] Fetch states may be stuck after GC
 
 ** Feature tasks

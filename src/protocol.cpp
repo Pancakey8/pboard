@@ -63,6 +63,17 @@ void serialize_shape(shape::Shape shape, std::vector<std::uint8_t> &out) {
   std::visit(serial, shape);
 }
 
+void serialize_endpoint(const asio::ip::udp::endpoint &ep,
+                        std::vector<std::uint8_t> &out) {
+  auto addr = ep.address().to_v4().to_bytes();
+
+  out.insert(out.end(), addr.begin(), addr.end());
+
+  auto port = ep.port();
+  out.push_back(static_cast<std::uint8_t>(port >> 8));
+  out.push_back(static_cast<std::uint8_t>(port));
+}
+
 void Message::serialize(std::vector<std::uint8_t> &out) {
   out.push_back('P');
   out.push_back('B');
@@ -85,14 +96,16 @@ void Message::serialize(std::vector<std::uint8_t> &out) {
     void operator()(const Hi &data) {
       out.push_back('H');
       out.push_back('I');
-      serialize_id(data.ask, out);
+      serialize_id(data.id, out);
     }
 
     void operator()(const Ih &data) {
       out.push_back('I');
       out.push_back('H');
-      out.push_back(data.permit ? 'T' : 'F');
-      serialize_id(data.assign, out);
+      serialize_num(static_cast<std::uint32_t>(data.eps.size()), out);
+      for (const auto &ep : data.eps) {
+        serialize_endpoint(ep, out);
+      }
     }
 
     void operator()(const Delete &data) {
@@ -273,6 +286,23 @@ std::optional<shape::Shape> deserialize_shape(auto &it, auto end) {
   return std::nullopt;
 }
 
+bool deserialize_endpoint(asio::ip::udp::endpoint &val, auto &it, auto end) {
+  if (std::distance(it, end) < 6) {
+    return false;
+  }
+
+  asio::ip::address_v4::bytes_type addr;
+  std::copy_n(it, 4, addr.begin());
+  it += 4;
+
+  std::uint16_t port = (static_cast<std::uint16_t>(it[0]) << 8) |
+                       static_cast<std::uint16_t>(it[1]);
+  it += 2;
+
+  val = asio::ip::udp::endpoint{asio::ip::address_v4{addr}, port};
+  return true;
+}
+
 std::optional<Message::Var> deserialize_var(auto &it, auto end) {
   if (std::distance(it, end) < 2)
     return std::nullopt;
@@ -298,25 +328,21 @@ std::optional<Message::Var> deserialize_var(auto &it, auto end) {
     return Message::Var{data};
   } else if (tag1 == 'H' && tag2 == 'I') {
     Message::Hi data;
-    if (!deserialize_id(data.ask, it, end))
+    if (!deserialize_id(data.id, it, end))
       return std::nullopt;
     return Message::Var{data};
   } else if (tag1 == 'I' && tag2 == 'H') {
     Message::Ih data;
-    if (std::distance(it, end) < 1)
+    std::uint32_t len;
+    if (!deserialize_num(len, it, end))
       return std::nullopt;
-    switch (*it++) {
-    case 'T':
-      data.permit = true;
-      break;
-    case 'F':
-      data.permit = false;
-      break;
-    default:
-      return std::nullopt;
+    data.eps.reserve(len);
+    for (std::uint32_t i = 0; i < len; ++i) {
+      asio::ip::udp::endpoint ep;
+      if (!deserialize_endpoint(ep, it, end))
+        return std::nullopt;
+      data.eps.push_back(ep);
     }
-    if (!deserialize_id(data.assign, it, end))
-      return std::nullopt;
     return Message::Var{data};
   } else if (tag1 == 'D' && tag2 == 'L') {
     Message::Delete data;
@@ -487,10 +513,15 @@ std::string Message::to_string() const {
                          data.target.gen, data.by.owner, data.by.gen);
     }
     std::string operator()(const Hi &data) {
-      return std::format("Hi {}", data.ask);
+      return std::format("Hi {}", data.id);
     }
     std::string operator()(const Ih &data) {
-      return std::format("Ih {}, {}", data.permit, data.assign);
+      std::vector<std::string> eps{};
+      for (const auto &ep : data.eps) {
+        eps.push_back(
+            std::format("{}:{}", ep.address().to_string(), ep.port()));
+      }
+      return std::format("Ih: {}", eps);
     }
     std::string operator()(const Fetch &data) {
       return std::format("Fetch ({}, {})", data.id.owner, data.id.gen);

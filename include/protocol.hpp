@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <flat_map>
 #include <uuid.h>
+#include <asio.hpp>
 
 namespace pboard::net {
 
@@ -66,12 +67,11 @@ struct Message {
   };
 
   struct Hi {
-    ClientId ask;
+    ClientId id;
   };
 
   struct Ih {
-    bool permit;
-    ClientId assign;
+    std::vector<asio::ip::udp::endpoint> eps;
   };
 
   struct Fetch {

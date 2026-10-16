@@ -77,8 +77,10 @@ void Label::render() const {
   DrawText(text.c_str(), x + (w - size) / 2, y + (h - 24) / 2, 24, col);
 }
 
-void MenuState::try_connect(std::optional<asio::ip::udp::socket> &sock,
-                            bool &is_host, asio::io_context &io_context) {
+void MenuState::try_connect(
+    std::optional<asio::ip::udp::socket> &sock,
+    std::optional<asio::ip::udp::endpoint> &initial_peer,
+    asio::io_context &io_context) {
   bool is_peer = !peer_addr.content.empty() || !peer_port.content.empty();
   bool is_self = !self_port.content.empty();
   if (is_self && is_peer) {
@@ -99,7 +101,7 @@ void MenuState::try_connect(std::optional<asio::ip::udp::socket> &sock,
       asio::ip::udp::endpoint endpoint(asio::ip::udp::v4(), port);
       sock = asio::ip::udp::socket(io_context, endpoint);
       sock->non_blocking(true);
-      is_host = true;
+      initial_peer.reset();
     } catch (const std::exception &e) {
       sock_fail.text = "Failed to bind port: " + std::string(e.what());
       layout();
@@ -112,12 +114,9 @@ void MenuState::try_connect(std::optional<asio::ip::udp::socket> &sock,
                                         peer_port.content);
 
       sock = asio::ip::udp::socket(io_context, asio::ip::udp::v4());
-
-      sock->connect(*endpoints.begin());
-
       sock->non_blocking(true);
 
-      is_host = false;
+      initial_peer = endpoints.begin()->endpoint();
     } catch (const std::exception &e) {
       sock_fail.text = "Failed to connect to peer: " + std::string(e.what());
       layout();
@@ -131,7 +130,8 @@ void MenuState::try_connect(std::optional<asio::ip::udp::socket> &sock,
 }
 
 void MenuState::update(std::optional<asio::ip::udp::socket> &sock,
-                       bool &is_host, asio::io_context &io_context) {
+                       std::optional<asio::ip::udp::endpoint> &initial_peer,
+                       asio::io_context &io_context) {
   if (IsWindowResized()) {
     layout();
   }
@@ -142,7 +142,7 @@ void MenuState::update(std::optional<asio::ip::udp::socket> &sock,
   connect.update();
 
   if (connect.is_pressed) {
-    try_connect(sock, is_host, io_context);
+    try_connect(sock, initial_peer, io_context);
   }
 }
 

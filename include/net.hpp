@@ -74,11 +74,11 @@ struct PeerVersions {
 struct ClientState {
   asio::io_context &io_context;
   asio::ip::udp::socket sock;
+  std::optional<asio::ip::udp::endpoint> initial_peer;
 
-  bool is_host;
-  std::vector<asio::ip::udp::endpoint> host_eps{};
+  std::vector<asio::ip::udp::endpoint> peers{};
 
-  ClientId self{}, asking{};
+  ClientId self{};
   Generation gen{0};
   std::flat_map<ClientId, VersionWindow> versions{};
   std::flat_map<ClientId, PeerVersions> peer_versions{};
@@ -110,6 +110,7 @@ struct ClientState {
   void sync_peers();
   void cleanup();
 
+  void add_peer(asio::ip::udp::endpoint peer);
   void send_to(asio::ip::udp::endpoint target, Message msg);
   void send_all(Message msg);
 

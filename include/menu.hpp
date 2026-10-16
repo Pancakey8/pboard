@@ -55,12 +55,12 @@ struct MenuState {
 
   void layout();
   void update(std::optional<asio::ip::udp::socket> &sock,
-              bool &is_host,
+              std::optional<asio::ip::udp::endpoint> &initial_peer,
               asio::io_context &io_context);
   void render() const;
 
   void try_connect(std::optional<asio::ip::udp::socket> &sock,
-                   bool &is_host,
+                   std::optional<asio::ip::udp::endpoint> &initial_peer,
                    asio::io_context &io_context);
 };
 

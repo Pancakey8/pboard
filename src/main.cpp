@@ -11,13 +11,13 @@ int main() {
   asio::io_context io_context;
 
   std::optional<asio::ip::udp::socket> sock;
-  bool is_host{false};
+  std::optional<asio::ip::udp::endpoint> initial_peer{};
 
   {
     pboard::menu::MenuState menu{};
 
     while (!WindowShouldClose()) {
-      menu.update(sock, is_host, io_context);
+      menu.update(sock, initial_peer, io_context);
       if (sock.has_value()) {
         break;
       }
@@ -30,7 +30,7 @@ int main() {
 
   {
     pboard::whiteboard::Whiteboard board{io_context, std::move(sock.value()),
-                                         is_host};
+                                         initial_peer};
 
     while (!WindowShouldClose()) {
       board.update();
