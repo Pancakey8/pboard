@@ -58,6 +58,7 @@ struct SyncState {
 
 struct MySync {
   bool active;
+  bool started;
   asio::ip::udp::endpoint peer;
   std::uint32_t len;
   std::vector<std::pair<ObjectId, ObjectData>> have;

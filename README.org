@@ -7,6 +7,7 @@ Collaborative whiteboard app
 - [X] Do version exchanges of prefixes
 - [X] Bulk fetch on connection
 - [X] Bulk fetch on window overflow
+- [ ] Handle deletions on bulk fetching
 - [-] Garbage collection
   - [X] Consensus version
   - [X] Message history cleanup
@@ -16,9 +17,9 @@ Collaborative whiteboard app
   - [ ] Handle stale peers
 - [X] Refactor protocol + (de)serialization into another file
 - [X] Refactor network send-receive into helper functions
-- [-] Mesh network
+- [X] Mesh network
   - [X] Mesh topology
-  - [ ] Peer discovery
+  - [X] Peer discovery
 - [X] Fetch states may be stuck after GC
 
 ** Feature tasks

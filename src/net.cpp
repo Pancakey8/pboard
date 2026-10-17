@@ -231,8 +231,8 @@ void ClientState::handle(asio::ip::udp::endpoint sender, Message msg) {
       self.send_to(sender, std::move(msg));
       std::vector<std::string> peers{};
       for (const auto &[id, peer] : self.peers)
-        peers.push_back(
-            std::format("{}:{}", peer.address().to_string(), peer.port()));
+        peers.push_back(std::format("({}, {}:{})", id,
+                                    peer.address().to_string(), peer.port()));
       std::println("LOG: Peers {}", peers);
     }
 
@@ -253,8 +253,8 @@ void ClientState::handle(asio::ip::udp::endpoint sender, Message msg) {
       }
       std::vector<std::string> peers{};
       for (const auto &[id, peer] : self.peers)
-        peers.push_back(
-            std::format("{}:{}", peer.address().to_string(), peer.port()));
+        peers.push_back(std::format("({}, {}:{})", id,
+                                    peer.address().to_string(), peer.port()));
       std::println("LOG: Peers {}", peers);
       self.synchronise(sender);
     }
@@ -270,11 +270,43 @@ void ClientState::handle(asio::ip::udp::endpoint sender, Message msg) {
     }
 
     void operator()(const Message::Versions &data) {
+      if (data.sender != self.self && !self.peers.contains(data.sender)) {
+        std::println("LOG: Asking for endpoint {}", data.sender);
+        self.send_to(sender, Message{Message::WhereIs{data.sender}});
+      }
+
+      for (const auto &[peer, gen] : data.certain) {
+        if (peer != self.self && !self.peers.contains(peer)) {
+          std::println("LOG: Asking for endpoint {}", peer);
+          self.send_to(sender, Message{Message::WhereIs{peer}});
+        }
+      }
+
       auto peer_ver = self.peer_versions.find(data.sender);
       if (peer_ver != self.peer_versions.end() &&
           peer_ver->second.last.expired()) {
-        // TODO: Stale client?
-        std::println("Stale client reconnected {}", data.sender);
+        std::uint32_t me{}, other{};
+        if (data.gen > self.versions[data.sender].prefix) {
+          other++;
+        } else if (data.gen < self.versions[data.sender].prefix) {
+          me++;
+        }
+        for (const auto &[peer, gen] : data.certain) {
+          if (gen > self.versions[peer].prefix) {
+            other++;
+          } else if (gen < self.versions[peer].prefix) {
+            me++;
+          }
+        }
+
+        if (me > other || (me == other && !(self.self < data.sender))) {
+          std::println("LOG: Ignoring stale client {}", data.sender);
+        } else if (me < other || (me == other && self.self < data.sender)) {
+          std::println("LOG: Behind stale client {}", data.sender);
+          using namespace std::chrono_literals;
+          peer_ver->second.last = Timer{10s};
+          self.synchronise(sender);
+        }
         return;
       }
 
@@ -285,7 +317,8 @@ void ClientState::handle(asio::ip::udp::endpoint sender, Message msg) {
       auto &ver = self.versions[data.sender];
       if (data.gen >= ver.prefix && data.gen <= ver.prefix + WINDOW_MAX) {
         ver.cap = std::max(ver.cap, data.gen - ver.prefix);
-      } else {
+      } else if (data.gen > ver.prefix + WINDOW_MAX) {
+        std::println("LOG: Version far behind {}", data.sender);
         self.synchronise(sender);
         return;
       }
@@ -296,7 +329,8 @@ void ClientState::handle(asio::ip::udp::endpoint sender, Message msg) {
         auto &ver = self.versions[owner];
         if (gen >= ver.prefix && gen <= ver.prefix + WINDOW_MAX) {
           ver.cap = std::max(ver.cap, gen - ver.prefix);
-        } else {
+        } else if (gen > ver.prefix + WINDOW_MAX) {
+          std::println("LOG: Version far behind {}", data.sender);
           self.synchronise(sender);
           return;
         }
@@ -304,18 +338,20 @@ void ClientState::handle(asio::ip::udp::endpoint sender, Message msg) {
     }
 
     void operator()(const Message::BulkHeader &data) {
-      if (self.sync.active && self.sync.len == 0) {
+      if (!self.sync.active)
+        return;
+
+      if (!self.sync.started) {
+        self.sync.started = true;
         self.sync.len = data.total;
         self.sync.chunks.resize(data.total + 1, false);
         self.sync.have.resize(data.total * BULK_SIZE);
       }
 
-      if (self.sync.active) {
-        self.sync.chunks[0] = true;
-        self.sync.certains = data.certain;
-        using namespace std::chrono_literals;
-        self.sync.last = Timer{1s};
-      }
+      self.sync.chunks[0] = true;
+      self.sync.certains = data.certain;
+      using namespace std::chrono_literals;
+      self.sync.last = Timer{1s};
     }
 
     void operator()(const Message::BulkRequest &data) {
@@ -346,7 +382,11 @@ void ClientState::handle(asio::ip::udp::endpoint sender, Message msg) {
     }
 
     void operator()(const Message::BulkResponse &data) {
-      if (self.sync.active && self.sync.len == 0) {
+      if (!self.sync.active)
+        return;
+
+      if (!self.sync.started) {
+        self.sync.started = true;
         self.sync.len = data.total;
         self.sync.chunks.resize(data.total + 1);
         self.sync.have.resize(data.total * BULK_SIZE);
@@ -550,7 +590,7 @@ void ClientState::cleanup() {
 }
 
 void ClientState::synchronise(asio::ip::udp::endpoint from) {
-  if (sync.active)
+  if (sync.active && !(sync.last.active && sync.last.expired()))
     return;
 
   std::flat_map<ClientId, Generation> certain{};
@@ -564,6 +604,7 @@ void ClientState::synchronise(asio::ip::udp::endpoint from) {
   buffer.clear();
   last_requested.clear();
   sync = {.active = true,
+          .started = false,
           .peer = from,
           .len = 0,
           .have = {},
@@ -573,7 +614,7 @@ void ClientState::synchronise(asio::ip::udp::endpoint from) {
 }
 
 void ClientState::check_sync() {
-  if (sync.len == 0) {
+  if (!sync.started) {
     if (sync.last.expired()) {
       synchronise(sync.peer);
     }
@@ -711,7 +752,7 @@ void VersionWindow::compact() {
 }
 
 bool ClientState::add_peer(ClientId id, asio::ip::udp::endpoint peer) {
-  if (peer == sock.local_endpoint())
+  if (peer == sock.local_endpoint() || id == self)
     return false;
 
   if (auto it = peers.find(id); it != peers.end() && it->second == peer)
