@@ -153,7 +153,6 @@ void ClientState::intro() {
   self = uuids::uuid_system_generator{}();
 
   if (initial_peer) {
-    add_peer(*initial_peer);
     send_to(*initial_peer, Message{Message::Hi{self}});
   }
 }
@@ -226,12 +225,12 @@ void ClientState::handle(asio::ip::udp::endpoint sender, Message msg) {
       }
     }
 
-    void operator()(const Message::Hi &) {
-      self.add_peer(sender);
-      Message msg{Message::Ih{self.peers}};
+    void operator()(const Message::Hi &data) {
+      self.add_peer(data.id, sender);
+      Message msg{Message::Ih{self.self, self.peers}};
       self.send_to(sender, std::move(msg));
       std::vector<std::string> peers{};
-      for (const auto &peer : self.peers)
+      for (const auto &[id, peer] : self.peers)
         peers.push_back(
             std::format("{}:{}", peer.address().to_string(), peer.port()));
       std::println("LOG: Peers {}", peers);
@@ -246,14 +245,14 @@ void ClientState::handle(asio::ip::udp::endpoint sender, Message msg) {
       if (self.initial_peer && sender == *self.initial_peer)
         self.initial_peer.reset();
       std::println("LOG: Got introduced");
-      self.add_peer(sender);
-      for (const auto &peer : data.eps) {
-        if (self.add_peer(peer)) {
+      self.add_peer(data.id, sender);
+      for (const auto &[id, peer] : data.eps) {
+        if (self.add_peer(id, peer)) {
           self.send_to(peer, Message{Message::Hi{self.self}});
         }
       }
       std::vector<std::string> peers{};
-      for (const auto &peer : self.peers)
+      for (const auto &[id, peer] : self.peers)
         peers.push_back(
             std::format("{}:{}", peer.address().to_string(), peer.port()));
       std::println("LOG: Peers {}", peers);
@@ -403,6 +402,17 @@ void ClientState::handle(asio::ip::udp::endpoint sender, Message msg) {
                   bulk.begin());
       Message msg{Message::BulkResponse{index, sync.len(), std::move(bulk)}};
       self.send_to(sender, std::move(msg));
+    }
+
+    void operator()(const Message::WhereIs &data) {
+      if (self.peers.contains(data.peer)) {
+        self.send_to(
+            sender, Message{Message::HereIs{data.peer, self.peers[data.peer]}});
+      }
+    }
+
+    void operator()(const Message::HereIs &data) {
+      self.add_peer(data.peer, data.ep);
     }
   } vtor{sender, *this};
 
@@ -700,14 +710,14 @@ void VersionWindow::compact() {
   cap = (cap > slide) ? cap - slide : 0;
 }
 
-bool ClientState::add_peer(asio::ip::udp::endpoint peer) {
+bool ClientState::add_peer(ClientId id, asio::ip::udp::endpoint peer) {
   if (peer == sock.local_endpoint())
     return false;
 
-  if (std::find(peers.begin(), peers.end(), peer) != peers.end())
+  if (auto it = peers.find(id); it != peers.end() && it->second == peer)
     return false;
 
-  peers.push_back(peer);
+  peers[id] = peer;
   return true;
 }
 
@@ -726,7 +736,7 @@ void ClientState::send_all(Message msg) {
   msg.serialize(buf);
 
   asio::error_code ec;
-  for (const auto &ep : peers) {
+  for (const auto &[id, ep] : peers) {
     sock.send_to(asio::buffer(buf), ep, 0, ec);
     if (ec) {
       std::println("LOG: Failed to send to {}:{}", ep.address().to_string(),

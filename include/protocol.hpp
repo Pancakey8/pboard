@@ -71,7 +71,8 @@ struct Message {
   };
 
   struct Ih {
-    std::vector<asio::ip::udp::endpoint> eps;
+    ClientId id;
+    std::flat_map<ClientId, asio::ip::udp::endpoint> eps;
   };
 
   struct Fetch {
@@ -105,8 +106,17 @@ struct Message {
     std::uint32_t index;
   };
 
+  struct WhereIs {
+    ClientId peer;
+  };
+
+  struct HereIs {
+    ClientId peer;
+    asio::ip::udp::endpoint ep;
+  };
+
   using Var = std::variant<Create, Hi, Ih, Delete, Fetch, Versions, BulkHeader,
-                           BulkRequest, BulkResponse, BulkNAck>;
+                           BulkRequest, BulkResponse, BulkNAck, WhereIs, HereIs>;
   Var data;
 
   void serialize(std::vector<std::uint8_t> &out);

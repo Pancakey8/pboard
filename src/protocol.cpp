@@ -102,8 +102,10 @@ void Message::serialize(std::vector<std::uint8_t> &out) {
     void operator()(const Ih &data) {
       out.push_back('I');
       out.push_back('H');
+      serialize_id(data.id, out);
       serialize_num(static_cast<std::uint32_t>(data.eps.size()), out);
-      for (const auto &ep : data.eps) {
+      for (const auto &[id, ep] : data.eps) {
+        serialize_id(id, out);
         serialize_endpoint(ep, out);
       }
     }
@@ -180,6 +182,19 @@ void Message::serialize(std::vector<std::uint8_t> &out) {
       out.push_back('N');
       serialize_id(data.from, out);
       serialize_num(data.index, out);
+    }
+
+    void operator()(const WhereIs &data) {
+      out.push_back('W');
+      out.push_back('Q');
+      serialize_id(data.peer, out);
+    }
+
+    void operator()(const HereIs &data) {
+      out.push_back('W');
+      out.push_back('R');
+      serialize_id(data.peer, out);
+      serialize_endpoint(data.ep, out);
     }
   } serial{out};
 
@@ -333,15 +348,23 @@ std::optional<Message::Var> deserialize_var(auto &it, auto end) {
     return Message::Var{data};
   } else if (tag1 == 'I' && tag2 == 'H') {
     Message::Ih data;
+    if (!deserialize_id(data.id, it, end))
+      return std::nullopt;
     std::uint32_t len;
     if (!deserialize_num(len, it, end))
       return std::nullopt;
-    data.eps.reserve(len);
+    auto cont = std::move(data.eps).extract();
+    cont.keys.reserve(len);
+    cont.values.reserve(len);
+    data.eps.replace(std::move(cont.keys), std::move(cont.values));
     for (std::uint32_t i = 0; i < len; ++i) {
+      ClientId id;
       asio::ip::udp::endpoint ep;
+      if (!deserialize_id(id, it, end))
+        return std::nullopt;
       if (!deserialize_endpoint(ep, it, end))
         return std::nullopt;
-      data.eps.push_back(ep);
+      data.eps[id] = ep;
     }
     return Message::Var{data};
   } else if (tag1 == 'D' && tag2 == 'L') {
@@ -466,6 +489,18 @@ std::optional<Message::Var> deserialize_var(auto &it, auto end) {
     if (!deserialize_num(data.index, it, end))
       return std::nullopt;
     return Message::Var{data};
+  } else if (tag1 == 'W' && tag2 == 'Q') {
+    Message::WhereIs data;
+    if (!deserialize_id(data.peer, it, end))
+      return std::nullopt;
+    return Message::Var{data};
+  } else if (tag1 == 'W' && tag2 == 'R') {
+    Message::HereIs data;
+    if (!deserialize_id(data.peer, it, end))
+      return std::nullopt;
+    if (!deserialize_endpoint(data.ep, it, end))
+      return std::nullopt;
+    return Message::Var{data};
   }
 
   return std::nullopt;
@@ -517,11 +552,11 @@ std::string Message::to_string() const {
     }
     std::string operator()(const Ih &data) {
       std::vector<std::string> eps{};
-      for (const auto &ep : data.eps) {
+      for (const auto &[id, ep] : data.eps) {
         eps.push_back(
-            std::format("{}:{}", ep.address().to_string(), ep.port()));
+            std::format("{}, {}:{}", id, ep.address().to_string(), ep.port()));
       }
-      return std::format("Ih: {}", eps);
+      return std::format("Ih {}: {}", data.id, eps);
     }
     std::string operator()(const Fetch &data) {
       return std::format("Fetch ({}, {})", data.id.owner, data.id.gen);
@@ -550,6 +585,13 @@ std::string Message::to_string() const {
     }
     std::string operator()(const BulkNAck &data) {
       return std::format("BulkNAck {}: {}", data.from, data.index);
+    }
+    std::string operator()(const WhereIs &data) {
+      return std::format("WhereIs {}", data.peer);
+    }
+    std::string operator()(const HereIs &data) {
+      return std::format("HereIs {}, {}:{}", data.peer,
+                         data.ep.address().to_string(), data.ep.port());
     }
   } vtor;
 

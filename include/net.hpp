@@ -76,7 +76,7 @@ struct ClientState {
   asio::ip::udp::socket sock;
   std::optional<asio::ip::udp::endpoint> initial_peer;
 
-  std::vector<asio::ip::udp::endpoint> peers{};
+  std::flat_map<ClientId, asio::ip::udp::endpoint> peers{};
 
   ClientId self{};
   Generation gen{0};
@@ -110,7 +110,7 @@ struct ClientState {
   void sync_peers();
   void cleanup();
 
-  bool add_peer(asio::ip::udp::endpoint peer);
+  bool add_peer(ClientId id, asio::ip::udp::endpoint peer);
   void send_to(asio::ip::udp::endpoint target, Message msg);
   void send_all(Message msg);
 
