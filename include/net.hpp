@@ -110,7 +110,7 @@ struct ClientState {
   void sync_peers();
   void cleanup();
 
-  void add_peer(asio::ip::udp::endpoint peer);
+  bool add_peer(asio::ip::udp::endpoint peer);
   void send_to(asio::ip::udp::endpoint target, Message msg);
   void send_all(Message msg);
 

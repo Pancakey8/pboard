@@ -243,13 +243,15 @@ void ClientState::handle(asio::ip::udp::endpoint sender, Message msg) {
                    self.initial_peer ? self.initial_peer->address().to_string()
                                      : "none",
                    self.initial_peer ? self.initial_peer->port() : 0);
-      if (!self.initial_peer || sender != *self.initial_peer)
-        return;
+      if (self.initial_peer && sender == *self.initial_peer)
+        self.initial_peer.reset();
       std::println("LOG: Got introduced");
-      self.initial_peer.reset();
       self.add_peer(sender);
-      for (const auto &peer : data.eps)
-        self.add_peer(peer);
+      for (const auto &peer : data.eps) {
+        if (self.add_peer(peer)) {
+          self.send_to(peer, Message{Message::Hi{self.self}});
+        }
+      }
       std::vector<std::string> peers{};
       for (const auto &peer : self.peers)
         peers.push_back(
@@ -698,14 +700,15 @@ void VersionWindow::compact() {
   cap = (cap > slide) ? cap - slide : 0;
 }
 
-void ClientState::add_peer(asio::ip::udp::endpoint peer) {
+bool ClientState::add_peer(asio::ip::udp::endpoint peer) {
   if (peer == sock.local_endpoint())
-    return;
+    return false;
 
   if (std::find(peers.begin(), peers.end(), peer) != peers.end())
-    return;
+    return false;
 
   peers.push_back(peer);
+  return true;
 }
 
 void ClientState::send_to(asio::ip::udp::endpoint target, Message msg) {
