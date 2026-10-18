@@ -72,6 +72,11 @@ struct PeerVersions {
   std::flat_map<ClientId, Generation> certain;
 };
 
+  struct Requested {
+    Timer timer;
+    uint32_t count;
+  };
+
 struct ClientState {
   asio::io_context &io_context;
   asio::ip::udp::socket sock;
@@ -83,7 +88,7 @@ struct ClientState {
   Generation gen{0};
   std::flat_map<ClientId, VersionWindow> versions{};
   std::flat_map<ClientId, PeerVersions> peer_versions{};
-  std::flat_map<ObjectId, Timer> last_requested{};
+  std::flat_map<ObjectId, Requested> last_requested{};
   Timer version_timer{};
 
   std::flat_map<ObjectId, Object> objs{};

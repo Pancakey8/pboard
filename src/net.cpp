@@ -138,9 +138,45 @@ void ClientState::request_all() {
         continue;
 
       ObjectId id = {owner, ver.prefix + i};
-      if (!last_requested[id].active || last_requested[id].expired()) {
+
+      if (last_requested[id].count > 5) {
+        if (peer_versions.empty() && peers.empty()) {
+          std::println("LOG: Requesting from no peers?");
+          last_requested[id] = {};
+          return;
+        } else if (peer_versions.empty()) {
+          std::println("LOG: No versions, synchronise with first peer");
+          synchronise(peers.begin()->second);
+          return;
+        }
+
+        ClientId best{peer_versions.begin()->first};
+        for (const auto &[peer, vers] : peer_versions | std::views::drop(1)) {
+          uint32_t me{0}, them{0};
+          for (const auto &[id, ver] : vers.certain) {
+            if (ver > peer_versions[best].certain[id]) {
+              me++;
+            } else if (ver < peer_versions[best].certain[id]) {
+              them++;
+            }
+          }
+          if (me > them) {
+            best = peer;
+          } else if (me == them && best < peer) {
+            best = peer;
+          }
+        }
+        
+        std::println("LOG: Synchronising with {}", best);
+        synchronise(peers[best]);
+        return;
+      }
+
+      if (!last_requested[id].timer.active ||
+          last_requested[id].timer.expired()) {
         using namespace std::chrono_literals;
-        last_requested[id] = Timer{3s};
+        last_requested[id].timer = Timer{3s};
+        last_requested[id].count++;
         Message msg{Message::Fetch{id}};
         send_all(std::move(msg));
         std::println("LOG: Requesting ({}, {})", id.owner, id.gen);
@@ -688,10 +724,13 @@ void ClientState::check_sync() {
       }
     }
 
-    versions = {};
+    std::flat_map<ClientId, VersionWindow> new_vers{};
     for (const auto &[id, pref] : sync.certains) {
-      versions[id].prefix = pref;
+      if (id == self)
+        continue;
+      new_vers[id].prefix = std::max(versions[id].prefix, pref);
     }
+    versions = std::move(new_vers);
 
     sync = {};
   }
