@@ -180,8 +180,41 @@ Color color_of_id(const uuids::uuid &id) {
   return ColorFromHSV(h, s, v);
 }
 
-void UIState::draw_cursor(float x, float y, net::ClientId id) const {
-  DrawCircle(x, y, 8, color_of_id(id));
+void UIState::draw_cursor(float x, float y, net::ClientId id,
+                          bool can_offscreen) const {
+  float w = GetRenderWidth();
+  float h = GetRenderHeight();
+
+  constexpr float SIZE = 8.0f;
+  constexpr float MARGIN = 16.0f;
+
+  bool outside_region =
+      (x < MARGIN || x > w - MARGIN || y < MARGIN || y > h - MARGIN);
+
+  if (can_offscreen && outside_region) {
+    float cx = std::clamp(x, MARGIN, w - MARGIN);
+    float cy = std::clamp(y, MARGIN, h - MARGIN);
+
+    float dx = x - cx;
+    float dy = y - cy;
+    float len = std::max(1e-4f, std::hypot(dx, dy));
+
+    float dir_x = dx / len;
+    float dir_y = dy / len;
+
+    float perp_x = -dir_y;
+    float perp_y = dir_x;
+
+    Vector2 tip{cx + dir_x * SIZE, cy + dir_y * SIZE};
+
+    Vector2 base{cx - dir_x * SIZE * 0.5f, cy - dir_y * SIZE * 0.5f};
+    Vector2 basel{base.x + perp_x * SIZE * 0.8f, base.y + perp_y * SIZE * 0.8f};
+    Vector2 baser{base.x - perp_x * SIZE * 0.8f, base.y - perp_y * SIZE * 0.8f};
+
+    DrawTriangle(tip, baser, basel, color_of_id(id));
+  } else {
+    DrawCircle(x, y, SIZE, color_of_id(id));
+  }
 }
 
 void UIState::render() const {
@@ -256,11 +289,11 @@ void UIState::render() const {
     if (!cur.alive())
       continue;
     const auto &[x, y] = cur.pos();
-    draw_cursor((x - vx) * scale, (y - vy) * scale, id);
+    draw_cursor((x - vx) * scale, (y - vy) * scale, id, true);
   }
 
   auto cur = GetMousePosition();
-  draw_cursor(cur.x, cur.y, client.self);
+  draw_cursor(cur.x, cur.y, client.self, false);
 }
 
 }; // namespace pboard::board_ui

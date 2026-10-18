@@ -34,7 +34,7 @@ struct UIState {
 
   explicit UIState(net::ClientState &client) : client{client} {}
 
-  void draw_cursor(float x, float y, net::ClientId id) const;
+  void draw_cursor(float x, float y, net::ClientId id, bool can_offscreen) const;
 
   void update();
   void render() const;
