@@ -166,7 +166,7 @@ void ClientState::request_all() {
             best = peer;
           }
         }
-        
+
         std::println("LOG: Synchronising with {}", best);
         synchronise(peers[best]);
         return;
@@ -490,6 +490,29 @@ void ClientState::handle(asio::ip::udp::endpoint sender, Message msg) {
     void operator()(const Message::HereIs &data) {
       self.add_peer(data.peer, data.ep);
     }
+
+    void operator()(const Message::CursorAt &data) {
+      if (data.id == self.self)
+        return;
+
+      auto &cur = self.cursors[data.id];
+      auto now = std::chrono::steady_clock::now();
+
+      cur.start = now;
+
+      if (!cur.expiry.active || cur.expiry.expired()) {
+        cur.sx = data.x;
+        cur.sy = data.y;
+      } else {
+        cur.sx = cur.ex;
+        cur.sy = cur.ey;
+      }
+
+      cur.ex = data.x;
+      cur.ey = data.y;
+
+      cur.expiry = Timer{10 * Cursor::DELTA};
+    }
   } vtor{sender, *this};
 
   std::visit(vtor, msg.data);
@@ -507,6 +530,7 @@ void ClientState::update() {
 
     auto msg = Message::deserialize(packet);
     if (msg) {
+      // if (!std::holds_alternative<Message::CursorAt>(msg->data))
       std::println("{}", msg->to_string());
       handle(ep, *msg);
     } else {
@@ -788,6 +812,26 @@ void VersionWindow::compact() {
   std::copy(received.begin() + slide, received.end(), received.begin());
   std::fill(received.end() - slide, received.end(), false);
   cap = (cap > slide) ? cap - slide : 0;
+}
+
+void ClientState::send_cursor(float x, float y) {
+  send_all(Message{Message::CursorAt{self, x, y}});
+}
+
+bool Cursor::alive() const { return expiry.active && !expiry.expired(); }
+
+std::pair<float, float> Cursor::pos() const {
+  auto now = std::chrono::steady_clock::now();
+
+  if (now - start >= DELTA) {
+    return {ex, ey};
+  }
+
+  auto total = std::chrono::duration<float>(DELTA).count();
+  auto elapsed = std::chrono::duration<float>(now - start).count();
+  auto t = std::clamp(elapsed / total, 0.0f, 1.0f);
+
+  return {sx + (ex - sx) * t, sy + (ey - sy) * t};
 }
 
 bool ClientState::add_peer(ClientId id, asio::ip::udp::endpoint peer) {

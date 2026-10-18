@@ -30,4 +30,4 @@ Collaborative whiteboard app
 - [ ] Bezier curves
 - [ ] Hollow rectangle/circle
 - [ ] Nicknames & peer list
-- [ ] Real-time peer cursor
+- [X] Real-time peer cursor

@@ -115,8 +115,13 @@ struct Message {
     asio::ip::udp::endpoint ep;
   };
 
+  struct CursorAt {
+    ClientId id;
+    float x, y;
+  };
+
   using Var = std::variant<Create, Hi, Ih, Delete, Fetch, Versions, BulkHeader,
-                           BulkRequest, BulkResponse, BulkNAck, WhereIs, HereIs>;
+                           BulkRequest, BulkResponse, BulkNAck, WhereIs, HereIs, CursorAt>;
   Var data;
 
   void serialize(std::vector<std::uint8_t> &out);

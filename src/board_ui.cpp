@@ -1,5 +1,7 @@
 #include "board_ui.hpp"
 #include "net.hpp"
+#include "protocol.hpp"
+#include "uuid.h"
 #include <algorithm>
 #include <cmath>
 #include <raylib.h>
@@ -151,6 +153,35 @@ void UIState::update() {
   if (IsKeyPressed(KEY_FOUR)) {
     tool.color = {0, 0, 255};
   }
+
+  bool cursor_send = (!cursor.timer.active || cursor.timer.expired());
+  auto mouse = GetMousePosition();
+  float mx = mouse.x / scale + vx;
+  float my = mouse.y / scale + vy;
+  bool cursor_moved = std::hypot(mx - cursor.xp, my - cursor.yp) > 5.0f;
+  if (cursor_send && cursor_moved) {
+    cursor.timer = Timer{net::Cursor::DELTA};
+    cursor.xp = mx;
+    cursor.yp = my;
+    client.send_cursor(mx, my);
+  }
+}
+
+Color color_of_id(const uuids::uuid &id) {
+  const auto &b = id.as_bytes();
+  std::uint64_t left{}, right{};
+  std::memcpy(&left, b.data(), 8);
+  std::memcpy(&right, b.data() + 8, 8);
+
+  float h = static_cast<float>((left % 720) * 275 % 720) / 2.0f;
+  float s = (55 + right % 31) / 100.0f;
+  float v = (70 + (right >> 8) % 26) / 100.0f;
+
+  return ColorFromHSV(h, s, v);
+}
+
+void UIState::draw_cursor(float x, float y, net::ClientId id) const {
+  DrawCircle(x, y, 8, color_of_id(id));
 }
 
 void UIState::render() const {
@@ -220,6 +251,16 @@ void UIState::render() const {
       std::visit(ghost, shape.value());
     }
   }
+
+  for (const auto &[id, cur] : client.cursors) {
+    if (!cur.alive())
+      continue;
+    const auto &[x, y] = cur.pos();
+    draw_cursor((x - vx) * scale, (y - vy) * scale, id);
+  }
+
+  auto cur = GetMousePosition();
+  draw_cursor(cur.x, cur.y, client.self);
 }
 
-}; // namespace pboard::ui
+}; // namespace pboard::board_ui

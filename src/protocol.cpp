@@ -196,6 +196,14 @@ void Message::serialize(std::vector<std::uint8_t> &out) {
       serialize_id(data.peer, out);
       serialize_endpoint(data.ep, out);
     }
+
+    void operator()(const CursorAt &data) {
+      out.push_back('K');
+      out.push_back('S');
+      serialize_id(data.id, out);
+      serialize_num(data.x, out);
+      serialize_num(data.y, out);
+    }
   } serial{out};
 
   std::visit(serial, data);
@@ -501,6 +509,15 @@ std::optional<Message::Var> deserialize_var(auto &it, auto end) {
     if (!deserialize_endpoint(data.ep, it, end))
       return std::nullopt;
     return Message::Var{data};
+  } else if (tag1 == 'K' && tag2 == 'S') {
+    Message::CursorAt data;
+    if (!deserialize_id(data.id, it, end))
+      return std::nullopt;
+    if (!deserialize_num(data.x, it, end))
+      return std::nullopt;
+    if (!deserialize_num(data.y, it, end))
+      return std::nullopt;
+    return Message::Var{data};
   }
 
   return std::nullopt;
@@ -592,6 +609,9 @@ std::string Message::to_string() const {
     std::string operator()(const HereIs &data) {
       return std::format("HereIs {}, {}:{}", data.peer,
                          data.ep.address().to_string(), data.ep.port());
+    }
+    std::string operator()(const CursorAt &data) {
+      return std::format("CursorAt {}: [{}, {}]", data.id, data.x, data.y);
     }
   } vtor;
 

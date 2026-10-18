@@ -32,6 +32,8 @@ int main() {
     pboard::whiteboard::Whiteboard board{io_context, std::move(sock.value()),
                                          initial_peer};
 
+    HideCursor();
+
     while (!WindowShouldClose()) {
       board.update();
 

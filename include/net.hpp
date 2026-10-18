@@ -2,6 +2,7 @@
 
 #include "protocol.hpp"
 #include "shape.hpp"
+#include "timer.hpp"
 #include <asio.hpp>
 #include <chrono>
 #include <cstdint>
@@ -32,20 +33,6 @@ struct VersionWindow {
   void compact();
 };
 
-struct Timer {
-  std::chrono::steady_clock::time_point expires_at;
-  bool active = false;
-
-  Timer() = default;
-
-  Timer(std::chrono::steady_clock::duration d)
-      : expires_at{std::chrono::steady_clock::now() + d}, active{true} {}
-
-  bool expired() const {
-    return std::chrono::steady_clock::now() >= expires_at;
-  }
-};
-
 struct SyncState {
   bool active;
   asio::ip::udp::endpoint to;
@@ -72,10 +59,24 @@ struct PeerVersions {
   std::flat_map<ClientId, Generation> certain;
 };
 
-  struct Requested {
-    Timer timer;
-    uint32_t count;
-  };
+struct Requested {
+  Timer timer;
+  uint32_t count;
+};
+
+struct Cursor {
+  constexpr static std::chrono::duration DELTA{std::chrono::milliseconds{100}};
+
+  std::chrono::steady_clock::time_point start;
+  float sx, sy;
+  float ex, ey;
+  Timer expiry;
+
+  Cursor() = default;
+
+  bool alive() const;
+  std::pair<float, float> pos() const;
+};
 
 struct ClientState {
   asio::io_context &io_context;
@@ -100,6 +101,8 @@ struct ClientState {
 
   std::flat_map<ClientId, SyncState> sync_with{};
 
+  std::flat_map<ClientId, Cursor> cursors{};
+
   MySync sync{};
 
   void push_back(shape::Shape shape, ObjectId origin);
@@ -119,6 +122,7 @@ struct ClientState {
   bool add_peer(ClientId id, asio::ip::udp::endpoint peer);
   void send_to(asio::ip::udp::endpoint target, Message msg);
   void send_all(Message msg);
+  void send_cursor(float x, float y);
 
   template <bool IsConst> class Iterator {
   public:

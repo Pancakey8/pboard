@@ -1,7 +1,9 @@
 #pragma once
 
 #include "net.hpp"
+#include "protocol.hpp"
 #include "shape.hpp"
+#include "timer.hpp"
 #include <optional>
 
 namespace pboard::board_ui {
@@ -16,6 +18,11 @@ struct ToolUse {
   std::optional<shape::Shape> render_of(float xm, float ym) const;
 };
 
+struct CursorState {
+  Timer timer;
+  float xp, yp;
+};
+
 struct UIState {
   ToolUse tool{};
   net::ClientState &client;
@@ -23,9 +30,13 @@ struct UIState {
   float vx{0.0f}, vy{0.0f};
   float scale{1.0f};
 
+  CursorState cursor;
+
   explicit UIState(net::ClientState &client) : client{client} {}
+
+  void draw_cursor(float x, float y, net::ClientId id) const;
 
   void update();
   void render() const;
 };
-}; // namespace pboard::ui
+}; // namespace pboard::board_ui
