@@ -83,49 +83,44 @@ void MenuState::try_connect(
     asio::io_context &io_context) {
   bool is_peer = !peer_addr.content.empty() || !peer_port.content.empty();
   bool is_self = !self_port.content.empty();
-  if (is_self && is_peer) {
-    sock_fail.text = "Only provide peer or port, not both.";
+
+  try {
+    std::uint16_t port = 0;
+    if (is_self) {
+      auto [ptr, ec] = std::from_chars(
+          self_port.content.data(),
+          self_port.content.data() + self_port.content.size(), port);
+      if (ec != std::errc()) {
+        sock_fail.text = "Listen port is invalid.";
+        layout();
+        return;
+      }
+    }
+    asio::ip::udp::endpoint endpoint(asio::ip::udp::v4(), port);
+    sock = asio::ip::udp::socket(io_context, endpoint);
+    sock->non_blocking(true);
+    std::println("On endpoint {}:{}",
+                 sock->local_endpoint().address().to_string(),
+                 sock->local_endpoint().port());
+  } catch (const std::exception &e) {
+    sock_fail.text = "Failed to bind port: " + std::string(e.what());
     layout();
     return;
-  } else if (is_self) {
-    std::uint16_t port;
-    auto [ptr, ec] = std::from_chars(
-        self_port.content.data(),
-        self_port.content.data() + self_port.content.size(), port);
-    if (ec != std::errc()) {
-      sock_fail.text = "Listen port is invalid.";
-      layout();
-      return;
-    }
-    try {
-      asio::ip::udp::endpoint endpoint(asio::ip::udp::v4(), port);
-      sock = asio::ip::udp::socket(io_context, endpoint);
-      sock->non_blocking(true);
-      initial_peer.reset();
-    } catch (const std::exception &e) {
-      sock_fail.text = "Failed to bind port: " + std::string(e.what());
-      layout();
-      return;
-    }
-  } else if (is_peer) {
+  }
+
+  if (is_peer) {
     try {
       asio::ip::udp::resolver resolver(io_context);
       auto endpoints = resolver.resolve(asio::ip::udp::v4(), peer_addr.content,
                                         peer_port.content);
-
-      sock = asio::ip::udp::socket(io_context, asio::ip::udp::v4());
-      sock->non_blocking(true);
-
       initial_peer = endpoints.begin()->endpoint();
     } catch (const std::exception &e) {
-      sock_fail.text = "Failed to connect to peer: " + std::string(e.what());
+      sock_fail.text = "Failed to resolve peer: " + std::string(e.what());
       layout();
       return;
     }
   } else {
-    sock_fail.text = "No peer/port provided.";
-    layout();
-    return;
+    initial_peer.reset();
   }
 }
 

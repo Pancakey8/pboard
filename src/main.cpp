@@ -10,7 +10,7 @@ int main() {
 
   asio::io_context io_context;
 
-  std::optional<asio::ip::udp::socket> sock;
+  std::optional<asio::ip::udp::socket> sock{};
   std::optional<asio::ip::udp::endpoint> initial_peer{};
 
   {
@@ -28,7 +28,7 @@ int main() {
     }
   }
 
-  {
+  if (!WindowShouldClose()) {
     pboard::whiteboard::Whiteboard board{io_context, std::move(sock.value()),
                                          initial_peer};
 

@@ -46,7 +46,7 @@ struct MenuState {
     peer_addr.hint = "Peer IP...";
     peer_port.hint = "Peer Port...";
     connect.text = "Connect";
-    form_div.text = "or";
+    form_div.text = "and/or";
     form_div.col = BLACK;
     sock_fail.text = "";
     sock_fail.col = RED;
