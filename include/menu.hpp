@@ -1,55 +1,37 @@
 #pragma once
 
+#include "widget.hpp"
 #include <asio.hpp>
 #include <raylib.h>
 #include <string>
 
 namespace pboard::menu {
 
-struct InputBox {
-  float x, y, w, h;
-  std::string hint{};
-  std::string content{};
-  std::size_t cursor{0};
-  bool is_active{false};
-
-  void update();
-  void render() const;
-};
-
-struct Button {
-  float x, y, w, h;
-  bool is_pressed{false};
-  bool is_hovered{false};
-  std::string text;
-
-  void update();
-  void render() const;
-};
-
-struct Label {
-  float x, y, w, h;
-  std::string text;
-  Color col;
-  void render() const;
-};
-
 struct MenuState {
-  float w, h;
-  InputBox self_port, peer_addr, peer_port;
-  Button connect;
-  Label form_div;
-  Label sock_fail;
+  const widget::UIContext &ui_ctx;
 
-  MenuState() {
-    self_port.hint = "Listen on...";
-    peer_addr.hint = "Peer IP...";
-    peer_port.hint = "Peer Port...";
+  float w, h;
+  widget::InputBox peer_addr{}, peer_port{}, self_port{};
+  widget::Button connect{};
+  widget::Label sock_fail{}, paddr_label{}, pport_label{}, sport_label{};
+  widget::Rect fail_bg{}, form_div{};
+
+  MenuState(const widget::UIContext &ui_ctx) : ui_ctx(ui_ctx) {
+    peer_addr.hint = "e.g. 0.0.0.0";
+    paddr_label.text = "Peer address (optional)";
+    peer_port.hint = "e.g. 4321";
+    pport_label.text = "Peer port (optional)";
+    self_port.hint = "e.g. 4321";
+    sport_label.text = "Listen port (optional)";
     connect.text = "Connect";
-    form_div.text = "and/or";
-    form_div.col = BLACK;
-    sock_fail.text = "";
-    sock_fail.col = RED;
+
+    fail_bg.col = Color(254, 240, 240, 255);
+    sock_fail.col = Color(127, 30, 30, 255);
+    form_div.col = Color(240, 240, 240, 255);
+    paddr_label.col = pport_label.col = sport_label.col =
+        Color(70, 70, 70, 255);
+    paddr_label.scale = pport_label.scale = sport_label.scale =
+        widget::FontScale::TINY;
     layout();
   }
 

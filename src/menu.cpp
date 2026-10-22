@@ -1,4 +1,5 @@
 #include "menu.hpp"
+#include "widget.hpp"
 #include <charconv>
 #include <cstdint>
 #include <print>
@@ -6,76 +7,6 @@
 #include <system_error>
 
 namespace pboard::menu {
-
-void InputBox::update() {
-  if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-    auto m = GetMousePosition();
-    is_active = (x <= m.x && m.x <= x + w) && (y <= m.y && m.y <= y + h);
-  }
-
-  if (!is_active) {
-    return;
-  }
-
-  if (MeasureText(content.c_str(), 16) <= w - 24) {
-    int key = GetCharPressed();
-    while (key > 0) {
-      if ((key >= 32) && (key <= 125)) {
-        content.insert(content.begin() + cursor, static_cast<char>(key));
-        cursor++;
-      }
-
-      key = GetCharPressed();
-    }
-  }
-
-  if (IsKeyPressed(KEY_LEFT) && cursor > 0) {
-    cursor--;
-  }
-
-  if (IsKeyPressed(KEY_RIGHT) && cursor < content.size()) {
-    cursor++;
-  }
-
-  if (IsKeyPressed(KEY_BACKSPACE) && cursor > 0) {
-    content.erase(content.begin() + cursor - 1);
-    cursor--;
-  }
-}
-
-void InputBox::render() const {
-  DrawRectangle(x, y, w, h, WHITE);
-  if (!content.empty()) {
-    DrawText(content.c_str(), x + 4, y + (h - 16) / 2, 16, BLACK);
-  } else {
-    DrawText(hint.c_str(), x + 4, y + (h - 16) / 2, 16,
-             Color(220, 220, 220, 255));
-  }
-
-  if (is_active) {
-    std::string sub = content.substr(0, cursor);
-    int dist = MeasureText(sub.c_str(), 16);
-    DrawRectangle(x + 4 + dist, y + (h - 16) / 2, 2, 16, GRAY);
-  }
-}
-
-void Button::update() {
-  auto m = GetMousePosition();
-  is_hovered = ((x <= m.x && m.x <= x + w) && (y <= m.y && m.y <= y + h));
-  is_pressed = IsMouseButtonReleased(MOUSE_BUTTON_LEFT) && is_hovered;
-}
-
-void Button::render() const {
-  DrawRectangle(x, y, w, h, BLACK);
-  int size = MeasureText(text.c_str(), 16);
-
-  DrawText(text.c_str(), x + (w - size) / 2, y + (h - 16) / 2, 16, WHITE);
-}
-
-void Label::render() const {
-  int size = MeasureText(text.c_str(), 24);
-  DrawText(text.c_str(), x + (w - size) / 2, y + (h - 24) / 2, 24, col);
-}
 
 void MenuState::try_connect(
     std::optional<asio::ip::udp::socket> &sock,
@@ -131,9 +62,9 @@ void MenuState::update(std::optional<asio::ip::udp::socket> &sock,
     layout();
   }
 
-  peer_addr.update();
-  peer_port.update();
-  self_port.update();
+  peer_addr.update(ui_ctx);
+  peer_port.update(ui_ctx);
+  self_port.update(ui_ctx);
   connect.update();
 
   if (connect.is_pressed) {
@@ -142,55 +73,67 @@ void MenuState::update(std::optional<asio::ip::udp::socket> &sock,
 }
 
 void MenuState::render() const {
-  ClearBackground(Color(180, 180, 180, 255));
-  sock_fail.render();
-  peer_addr.render();
-  peer_port.render();
+  ClearBackground(Color(255, 255, 255, 255));
+
+  if (!sock_fail.text.empty()) {
+    fail_bg.render();
+    sock_fail.render(ui_ctx);
+  }
+  paddr_label.render(ui_ctx);
+  peer_addr.render(ui_ctx);
+  pport_label.render(ui_ctx);
+  peer_port.render(ui_ctx);
   form_div.render();
-  self_port.render();
-  connect.render();
+  sport_label.render(ui_ctx);
+  self_port.render(ui_ctx);
+  connect.render(ui_ctx);
 }
 
 void MenuState::layout() {
-  float w_form = 180;
-  float h_each = 40;
-  float gap = 20;
-  int count = sock_fail.text.empty() ? 5 : 6;
+  float w = GetRenderWidth();
 
-  float min_w = w_form + 2 * gap;
-  float min_h = h_each * count + gap * (count - 1) + 2 * gap;
+  float form_width = std::max(150.0f, w / 3.0f);
+  float elem_height = 40.0f;
+  float gap = 15.0f;
 
-  float w = std::max(min_w, static_cast<float>(GetRenderWidth()));
-  float h = std::max(min_h, static_cast<float>(GetRenderHeight()));
-
-  connect.w = self_port.w = peer_addr.w = peer_port.w = sock_fail.w =
-      form_div.w = w_form;
-  connect.h = self_port.h = peer_addr.h = peer_port.h = sock_fail.h =
-      form_div.h = h_each;
-  connect.x = self_port.x = peer_addr.x = peer_port.x = sock_fail.x =
-      form_div.x = gap + (w - min_w) / 2;
-
-  float y = gap + (h - min_h) / 2;
+  float x = std::max(0.0f, (w - form_width) / 2.0f);
+  float y = 20.0f;
 
   if (!sock_fail.text.empty()) {
-    sock_fail.y = y;
-    y += h_each + gap;
+    fail_bg.x = x;
+    fail_bg.y = y;
+    fail_bg.w = form_width;
+    fail_bg.h = elem_height;
+
+    sock_fail.x = x + 4.0f;
+    sock_fail.w = form_width;
+    sock_fail.h = elem_height;
+
+    auto font = widget::font_of(sock_fail.scale, ui_ctx);
+    auto char_size = MeasureTextEx(font, "a", font.baseSize, 0);
+
+    sock_fail.y = y + std::max(0.0f, (elem_height - char_size.y) / 2.0f);
+
+    y += elem_height + gap;
   }
 
-  peer_addr.y = y;
-  y += h_each + gap;
+  [&]<typename... Widgets>(Widgets &...w) {
+    ((w.x = x, w.w = form_width, w.h = elem_height), ...);
+  }(paddr_label, peer_addr, pport_label, peer_port, form_div, sport_label,
+    self_port, connect);
 
-  peer_port.y = y;
-  y += h_each + gap;
+  form_div.h = 2.0f;
 
-  form_div.y = y;
-  y += h_each + gap;
+  {
+    auto font = widget::font_of(paddr_label.scale, ui_ctx);
+    auto char_size = MeasureTextEx(font, "a", font.baseSize, 0);
+    paddr_label.h = pport_label.h = sport_label.h = char_size.y - 6.0f;
+  }
 
-  self_port.y = y;
-  y += h_each + gap;
-
-  connect.y = y;
-  y += h_each + gap;
+  [&]<typename... Widgets>(Widgets &...w) {
+    ((w.y = y, y += w.h + gap), ...);
+  }(paddr_label, peer_addr, pport_label, peer_port, form_div, sport_label,
+    self_port, connect);
 }
 
 } // namespace pboard::menu

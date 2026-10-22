@@ -12,9 +12,24 @@ target_compile_definitions(asio INTERFACE ASIO_STANDALONE)
 set(UUID_SYSTEM_GENERATOR ON CACHE BOOL "Enable system uuid generator" FORCE)
 add_subdirectory(3rd/stduuid)
 
-add_executable(pboard src/main.cpp src/board_ui.cpp src/net.cpp src/whiteboard.cpp src/menu.cpp src/protocol.cpp)
+set(GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/gen")
+set(SPACE_MONO_FONT "${CMAKE_CURRENT_SOURCE_DIR}/res/space-mono/SpaceMono-Regular.ttf")
+set(SPACE_MONO_OUTPUT "${GENERATED_DIR}/space-mono.h")
+
+find_program(XXD_EXECUTABLE xxd REQUIRED)
+
+add_custom_command(
+  OUTPUT "${SPACE_MONO_OUTPUT}"
+  COMMAND "${CMAKE_COMMAND}" -E make_directory "${GENERATED_DIR}"
+  COMMAND "${XXD_EXECUTABLE}" -i -n space_mono "${SPACE_MONO_FONT}" "${SPACE_MONO_OUTPUT}"
+  DEPENDS "${SPACE_MONO_FONT}"
+  COMMENT "Generating C array from font asset..."
+  VERBATIM
+)
+
+add_executable(pboard src/main.cpp src/board_ui.cpp src/net.cpp src/whiteboard.cpp src/menu.cpp src/protocol.cpp src/widget.cpp "${SPACE_MONO_OUTPUT}")
 target_compile_features(pboard PUBLIC cxx_std_23)
-target_include_directories(pboard PRIVATE include/)
+target_include_directories(pboard PRIVATE include/ "${GENERATED_DIR}")
 target_compile_options(pboard PRIVATE -Wall -Wextra)
 target_compile_options(pboard PRIVATE
     $<$<CONFIG:Debug>:-fsanitize=address,undefined -fno-omit-frame-pointer>
