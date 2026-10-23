@@ -78,6 +78,15 @@ bool point_in(float x, float y, const shape::Shape &shape) {
 }
 
 void UIState::update() {
+  if (IsWindowResized()) {
+    layout();
+  }
+
+  peers.update(client);
+
+  if (!active())
+    return;
+
   if (IsKeyPressed(KEY_M)) {
     tool.selection = ToolUse::Tool::PAN;
   } else if (IsKeyPressed(KEY_R)) {
@@ -278,7 +287,7 @@ void UIState::render() const {
   }
 
   RendVtor ghost{vx, vy, scale, 170};
-  if (IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
+  if (active() && IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
     if (auto shape = tool.render_of(GetMouseX() / scale + vx,
                                     GetMouseY() / scale + vy)) {
       std::visit(ghost, shape.value());
@@ -292,8 +301,21 @@ void UIState::render() const {
     draw_cursor((x - vx) * scale, (y - vy) * scale, id, true);
   }
 
+  peers.render(ui_ctx);
+
   auto cur = GetMousePosition();
   draw_cursor(cur.x, cur.y, client.self, false);
 }
+
+void UIState::layout() {
+  // float w = GetRenderWidth();
+  float h = GetRenderHeight();
+  peers.x = 20;
+  peers.y = h - 200.0f - peers.BORDER;
+  peers.w = 250.0f;
+  peers.h = 200.0f;
+}
+
+bool UIState::active() const { return !peers.is_active; }
 
 }; // namespace pboard::board_ui

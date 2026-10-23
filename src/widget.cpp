@@ -1,5 +1,8 @@
 #include "widget.hpp"
+#include "protocol.hpp"
+#include "words.hpp"
 #include <print>
+#include <ranges>
 #include <raylib.h>
 
 namespace pboard::widget {
@@ -139,6 +142,128 @@ void Label::render(const UIContext &ctx) const {
   }
 
   DrawTextEx(font, visible_cache.c_str(), {x, y}, font.baseSize, 0, col);
+}
+
+std::string name_of_id(net::ClientId id) {
+  const auto &b = id.as_bytes();
+  std::uint64_t left{}, right{};
+  std::memcpy(&left, b.data(), 8);
+  std::memcpy(&right, b.data() + 8, 8);
+
+  auto pred = words::PREDICATE_DICT[left % words::PREDICATE_DICT.size()];
+  auto obj = words::OBJECT_DICT[right % words::OBJECT_DICT.size()];
+
+  return std::format("{}-{}", pred, obj);
+}
+
+void PeerList::update(const net::ClientState &client) {
+  for (const auto &[id, ep] : client.peers) {
+    if (auto it = client.peer_versions.find(id);
+        it != client.peer_versions.end() && it->second.last.expired()) {
+      if (auto it = endpoints.find(id); it != endpoints.end()) {
+        endpoints.erase(it);
+      }
+      if (auto it = id_reprs.find(id); it != id_reprs.end()) {
+        id_reprs.erase(it);
+      }
+      continue;
+    }
+
+    if (endpoints.contains(id))
+      continue;
+
+    endpoints[id] = std::format("{}:{}", ep.address().to_string(), ep.port());
+    id_reprs[id] = name_of_id(id);
+  }
+
+  if (title_msg.empty()) {
+    auto ep = client.sock.local_endpoint();
+    title_msg =
+        std::format("Peers ({}:{})", ep.address().to_string(), ep.port());
+  }
+
+  auto mouse = GetMousePosition();
+  float view_h = h + dy / 2;
+  float view_y = y - dy / 2;
+  bool is_hovered = (x <= mouse.x && mouse.x <= x + w) &&
+                    (view_y <= mouse.y && mouse.y <= view_y + view_h);
+
+  if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+    is_active = is_hovered;
+  }
+
+  if (is_hovered && IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) {
+    is_active = true;
+    auto delta = GetMouseDelta();
+    dy -= delta.y * 2;
+  } else if (is_active && GetMouseWheelMove() != 0) {
+    auto ds = GetMouseWheelMove() > 0 ? 1 : -1;
+    start -= ds;
+  }
+
+  start = std::clamp(start, 0, static_cast<int>(endpoints.size()));
+  dy = std::max(dy, 2.0f * (TITLEBAR - h));
+}
+
+void PeerList::render(const UIContext &ctx) const {
+  float view_h = h + dy / 2;
+  float view_y = y - dy / 2;
+
+  DrawRectangle(x - BORDER, view_y - BORDER, w + 2 * BORDER,
+                view_h + 2 * BORDER, Color(230, 230, 230, 255));
+
+  Color bg = is_active ? Color(255, 255, 255, 255) : Color(240, 240, 240, 255);
+  DrawRectangle(x, view_y, w, view_h, bg);
+
+  auto font = font_of(FontScale::MED, ctx);
+  auto char_size = MeasureTextEx(font, "a", font.baseSize, 0);
+
+  Color title =
+      is_active ? Color(220, 220, 220, 255) : Color(200, 200, 200, 255);
+
+  DrawRectangle(x, view_y, w, TITLEBAR, title);
+  DrawTextEx(font, title_msg.c_str(),
+             {x + PADDING, view_y + (TITLEBAR - char_size.y) / 2.0f},
+             font.baseSize, 0, Color(20, 20, 20, 255));
+
+  std::size_t line{1 + static_cast<std::size_t>(start)};
+
+  float my{view_y + TITLEBAR + PADDING};
+  float hdiv{2.0f};
+
+  bool first{true};
+  for (const auto &[id, endpoint] : endpoints | std::views::drop(start)) {
+    if (my + char_size.y * 2 + PADDING >= view_y + view_h)
+      break;
+
+    if (!first) {
+      my += PADDING / 2;
+      DrawRectangle(x + PADDING, my, w - 2 * PADDING, hdiv,
+                    Color(200, 200, 200, 255));
+      my += hdiv;
+    } else {
+      first = false;
+    }
+
+    my += PADDING / 2;
+
+    auto name_it = id_reprs.find(id);
+    const char *name =
+        name_it == id_reprs.end() ? "N/A" : name_it->second.c_str();
+
+    std::string tex{std::to_string(line) + ". "};
+    DrawTextEx(font, tex.c_str(), {x + PADDING, my}, font.baseSize, 0,
+               Color(20, 20, 20, 255));
+
+    DrawTextEx(font, name, {x + PADDING + char_size.x * tex.size(), my},
+               font.baseSize, 0, Color(20, 20, 20, 255));
+    my += char_size.y;
+    DrawTextEx(font, endpoint.c_str(), {x + PADDING, my}, font.baseSize, 0,
+               Color(20, 20, 20, 255));
+    my += char_size.y + PADDING / 2;
+
+    line++;
+  }
 }
 
 } // namespace pboard::widget

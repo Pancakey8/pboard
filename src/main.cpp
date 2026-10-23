@@ -43,8 +43,8 @@ int main() {
   }
 
   if (!WindowShouldClose()) {
-    pboard::whiteboard::Whiteboard board{io_context, std::move(sock.value()),
-                                         initial_peer};
+    pboard::whiteboard::Whiteboard board{ui_ctx, io_context,
+                                         std::move(sock.value()), initial_peer};
 
     HideCursor();
 

@@ -4,6 +4,7 @@
 #include "protocol.hpp"
 #include "shape.hpp"
 #include "timer.hpp"
+#include "widget.hpp"
 #include <optional>
 
 namespace pboard::board_ui {
@@ -24,6 +25,8 @@ struct CursorState {
 };
 
 struct UIState {
+  const widget::UIContext &ui_ctx;
+
   ToolUse tool{};
   net::ClientState &client;
   std::optional<net::ObjectId> shape_targ{};
@@ -32,11 +35,20 @@ struct UIState {
 
   CursorState cursor;
 
-  explicit UIState(net::ClientState &client) : client{client} {}
+  widget::PeerList peers{};
 
-  void draw_cursor(float x, float y, net::ClientId id, bool can_offscreen) const;
+  explicit UIState(const widget::UIContext &ui_ctx, net::ClientState &client)
+      : ui_ctx{ui_ctx}, client{client} {
+    layout();
+  }
 
+  void draw_cursor(float x, float y, net::ClientId id,
+                   bool can_offscreen) const;
+
+  void layout();
   void update();
   void render() const;
+
+  bool active() const;
 };
 }; // namespace pboard::board_ui

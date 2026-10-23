@@ -29,5 +29,5 @@ Collaborative whiteboard app
 - [ ] Text shape
 - [ ] Bezier curves
 - [ ] Hollow rectangle/circle
-- [ ] Nicknames & peer list
+- [X] Nicknames & peer list
 - [X] Real-time peer cursor

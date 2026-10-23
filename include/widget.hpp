@@ -1,5 +1,7 @@
 #pragma once
 
+#include "net.hpp"
+#include "protocol.hpp"
 #include <raylib.h>
 #include <string>
 
@@ -65,4 +67,26 @@ struct Label {
 
   void render(const UIContext &ctx) const;
 };
+
+struct PeerList {
+  float x, y, w, h;
+
+  float dy{};
+  int start{};
+  bool is_active{false};
+
+  std::flat_map<net::ClientId, std::string> endpoints{};
+  std::flat_map<net::ClientId, std::string> id_reprs{};
+
+  std::string title_msg{};
+
+  static constexpr float TITLEBAR{40.0f};
+
+  static constexpr float PADDING{4.0f};
+  static constexpr float BORDER{2.0f};
+
+  void update(const net::ClientState &client);
+  void render(const UIContext &ctx) const;
+};
+
 } // namespace pboard::widget
