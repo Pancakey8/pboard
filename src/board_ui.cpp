@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <raylib.h>
+#include <type_traits>
 
 namespace pboard::board_ui {
 
@@ -150,20 +151,17 @@ void UIState::update() {
     tool.line_thickness = std::max(1.0f, tool.line_thickness);
   }
 
-  if (IsKeyPressed(KEY_ONE)) {
-    tool.color = {0, 0, 0};
-  }
-
-  if (IsKeyPressed(KEY_TWO)) {
-    tool.color = {255, 0, 0};
-  }
-
-  if (IsKeyPressed(KEY_THREE)) {
-    tool.color = {0, 255, 0};
-  }
-
-  if (IsKeyPressed(KEY_FOUR)) {
-    tool.color = {0, 0, 255};
+  static_assert(std::tuple_size_v<decltype(tool_menu.hotbar)> <= 9);
+  for (std::underlying_type_t<KeyboardKey> key = KEY_ONE; key <= KEY_NINE;
+       ++key) {
+    auto n = key - KEY_ONE;
+    if (!IsKeyPressed(key))
+      continue;
+    if (n >= tool_menu.hotbar.size())
+      break;
+    tool.color = {static_cast<float>(tool_menu.hotbar[n].r),
+                  static_cast<float>(tool_menu.hotbar[n].g),
+                  static_cast<float>(tool_menu.hotbar[n].b)};
   }
 
   bool cursor_send = (!cursor.timer.active || cursor.timer.expired());
