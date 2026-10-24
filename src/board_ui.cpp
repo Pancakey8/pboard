@@ -320,12 +320,14 @@ void UIState::layout() {
   peers.w = 250.0f;
   peers.h = 200.0f;
 
-  tool_menu.x = w - 120.0f;
+  tool_menu.x = w - 100.0f;
   tool_menu.y = tool_menu.BORDER;
-  tool_menu.w = 120.0f - tool_menu.BORDER;
+  tool_menu.w = 100.0f - tool_menu.BORDER;
   tool_menu.h = h - 2.0f * tool_menu.BORDER;
 }
 
-bool UIState::active() const { return !peers.is_active && !tool_menu.is_active; }
+bool UIState::active() const {
+  return !peers.is_active && !tool_menu.is_active;
+}
 
 }; // namespace pboard::board_ui

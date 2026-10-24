@@ -2,6 +2,7 @@
 #include "protocol.hpp"
 #include "tool.hpp"
 #include "words.hpp"
+#include <cmath>
 #include <print>
 #include <ranges>
 #include <raylib.h>
@@ -267,6 +268,27 @@ void PeerList::render(const UIContext &ctx) const {
   }
 }
 
+void ColorButton::update() {
+  auto mouse = GetMousePosition();
+  auto d = std::hypot(x - mouse.x, y - mouse.y);
+
+  is_hovered = (d <= r);
+  is_pressed = (is_hovered && IsMouseButtonPressed(MOUSE_BUTTON_LEFT));
+}
+
+void ColorButton::render() const {
+  auto hsv = ColorToHSV(color);
+
+  float border_v = (hsv.z > 0.5f) ? (hsv.z - 0.25f) : (hsv.z + 0.25f);
+  border_v = std::clamp(border_v, 0.0f, 1.0f);
+  float border_s = std::clamp(hsv.y * 1.15f, 0.0f, 1.0f);
+
+  auto border = ColorFromHSV(hsv.x, border_s, border_v);
+
+  DrawCircle(x, y, r + BORDER, border);
+  DrawCircle(x, y, r, color);
+}
+
 void ToolMenu::update(tool::ToolState &tool) {
   [&]<typename... Buttons>(Buttons &...btn) {
     float my{y + PADDING}, elem_h{30.0f};
@@ -276,6 +298,34 @@ void ToolMenu::update(tool::ToolState &tool) {
      ...);
     (btn.update(), ...);
   }(pan, select, rect, line, circ);
+
+  float r{12.0f}, my{y + h - PADDING - r - ColorButton::BORDER};
+  float hgap{(w - 2.0f * PADDING - 4.0f * (r + ColorButton::BORDER)) / 3.0f},
+      vgap{6.0f};
+  for (const auto &[i, col] : colors | std::views::enumerate) {
+    col.x = x + (w - 4.0f * (r + col.BORDER) - hgap) / 2.0f + r;
+    if (i % 2 == 1) {
+      col.x += 2.0f * (r + col.BORDER) + hgap;
+    }
+    col.y = my;
+    col.r = r;
+    if (i % 2 == 1) {
+      my -= 2 * (r + col.BORDER) + vgap;
+    }
+  }
+
+  for (const auto &[btn, col] : std::views::zip(colors, hotbar)) {
+    btn.color = col;
+  }
+
+  for (auto &col : colors) {
+    col.update();
+    if (col.is_pressed) {
+      tool.color = {static_cast<float>(col.color.r),
+                    static_cast<float>(col.color.g),
+                    static_cast<float>(col.color.b)};
+    }
+  }
 
   if (pan.is_pressed) {
     tool.selection = tool::Tool::PAN;
@@ -306,9 +356,14 @@ void ToolMenu::render(const tool::ToolState &tool, const UIContext &ctx) const {
   DrawRectangle(x - BORDER, y - BORDER, w + 2 * BORDER, h + 2 * BORDER,
                 Color(230, 230, 230, 255));
   DrawRectangle(x, y, w, h, Color(240, 240, 240, 255));
+
   [&]<typename... Buttons>(Buttons &...btn) {
     (btn.render(ctx), ...);
   }(pan, select, rect, line, circ);
+
+  for (const auto &col : colors) {
+    col.render();
+  }
 }
 
 } // namespace pboard::widget

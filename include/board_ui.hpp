@@ -33,6 +33,9 @@ struct UIState {
 
   explicit UIState(const widget::UIContext &ui_ctx, net::ClientState &client)
       : ui_ctx{ui_ctx}, client{client} {
+    auto &base = tool_menu.hotbar[0];
+    tool.color = {static_cast<float>(base.r), static_cast<float>(base.g),
+                  static_cast<float>(base.b)};
     layout();
   }
 

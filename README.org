@@ -28,7 +28,8 @@ Collaborative whiteboard app
   - [X] Basics
   - [ ] Use icons for buttons
   - [ ] Deletion, line thickness / tool specific interactions
-- [ ] Color wheel and color hotbar
+- [ ] Color wheel
+- [X] Color hotbar
 - [ ] Text shape
 - [ ] Bezier curves
 - [ ] Hollow rectangle/circle

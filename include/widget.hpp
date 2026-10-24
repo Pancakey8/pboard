@@ -90,6 +90,19 @@ struct PeerList {
   void render(const UIContext &ctx) const;
 };
 
+struct ColorButton {
+  float x, y, r;
+  Color color;
+
+  bool is_pressed{false};
+  bool is_hovered{false};
+
+  static constexpr float BORDER{2.0f};
+
+  void update();
+  void render() const;
+};
+  
 struct ToolMenu {
   float x, y, w, h;
 
@@ -97,6 +110,9 @@ struct ToolMenu {
   static constexpr float BORDER{2.0f};
 
   Button pan{}, select{}, rect{}, line{}, circ{};
+
+  std::array<Color, 8> hotbar{};
+  std::array<ColorButton, 8> colors{};
 
   bool is_active{false};
 
@@ -106,6 +122,19 @@ struct ToolMenu {
     rect.text = "Rectangle";
     line.text = "Line";
     circ.text = "Circle";
+
+    for (auto &col : colors) {
+      col.color = Color(255, 0, 0, 255);
+    }
+
+    hotbar[0] = GetColor(0x1E293BFF);
+    hotbar[1] = GetColor(0x64748BFF);
+    hotbar[2] = GetColor(0x2563EBFF);
+    hotbar[3] = GetColor(0x16A34AFF);
+    hotbar[4] = GetColor(0xDC2626FF);
+    hotbar[5] = GetColor(0xD97706FF);
+    hotbar[6] = GetColor(0x9333EAFF);
+    hotbar[7] = GetColor(0x0891B2FF);
   }
 
   void update(tool::ToolState &tool);
