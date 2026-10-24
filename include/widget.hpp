@@ -2,6 +2,7 @@
 
 #include "net.hpp"
 #include "protocol.hpp"
+#include "tool.hpp"
 #include <raylib.h>
 #include <string>
 
@@ -87,6 +88,28 @@ struct PeerList {
 
   void update(const net::ClientState &client);
   void render(const UIContext &ctx) const;
+};
+
+struct ToolMenu {
+  float x, y, w, h;
+
+  static constexpr float PADDING{4.0f};
+  static constexpr float BORDER{2.0f};
+
+  Button pan{}, select{}, rect{}, line{}, circ{};
+
+  bool is_active{false};
+
+  ToolMenu() {
+    pan.text = "Pan";
+    select.text = "Select";
+    rect.text = "Rectangle";
+    line.text = "Line";
+    circ.text = "Circle";
+  }
+
+  void update(tool::ToolState &tool);
+  void render(const tool::ToolState &tool, const UIContext &ctx) const;
 };
 
 } // namespace pboard::widget

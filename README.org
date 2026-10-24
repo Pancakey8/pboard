@@ -24,7 +24,10 @@ Collaborative whiteboard app
 
 ** Feature tasks
 
-- [ ] Tool selection UI
+- [-] Tool selection UI
+  - [X] Basics
+  - [ ] Use icons for buttons
+  - [ ] Deletion, line thickness / tool specific interactions
 - [ ] Color wheel and color hotbar
 - [ ] Text shape
 - [ ] Bezier curves

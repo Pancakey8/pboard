@@ -1,5 +1,6 @@
 #include "widget.hpp"
 #include "protocol.hpp"
+#include "tool.hpp"
 #include "words.hpp"
 #include <print>
 #include <ranges>
@@ -264,6 +265,50 @@ void PeerList::render(const UIContext &ctx) const {
 
     line++;
   }
+}
+
+void ToolMenu::update(tool::ToolState &tool) {
+  [&]<typename... Buttons>(Buttons &...btn) {
+    float my{y + PADDING}, elem_h{30.0f};
+    ((btn.x = x + PADDING, btn.y = my + PADDING,
+      btn.w = w - 2 * btn.BORDER - PADDING, btn.h = elem_h,
+      my += elem_h + 2 * btn.BORDER + 4.0f),
+     ...);
+    (btn.update(), ...);
+  }(pan, select, rect, line, circ);
+
+  if (pan.is_pressed) {
+    tool.selection = tool::Tool::PAN;
+  }
+
+  if (select.is_pressed) {
+    tool.selection = tool::Tool::SELECT;
+  }
+
+  if (rect.is_pressed) {
+    tool.selection = tool::Tool::RECT;
+  }
+
+  if (line.is_pressed) {
+    tool.selection = tool::Tool::LINE;
+  }
+
+  if (circ.is_pressed) {
+    tool.selection = tool::Tool::CIRC;
+  }
+
+  auto mouse = GetMousePosition();
+  is_active =
+      (x <= mouse.x && mouse.x <= x + w) && (y <= mouse.y && mouse.y <= y + h);
+}
+
+void ToolMenu::render(const tool::ToolState &tool, const UIContext &ctx) const {
+  DrawRectangle(x - BORDER, y - BORDER, w + 2 * BORDER, h + 2 * BORDER,
+                Color(230, 230, 230, 255));
+  DrawRectangle(x, y, w, h, Color(240, 240, 240, 255));
+  [&]<typename... Buttons>(Buttons &...btn) {
+    (btn.render(ctx), ...);
+  }(pan, select, rect, line, circ);
 }
 
 } // namespace pboard::widget

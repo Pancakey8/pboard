@@ -2,33 +2,35 @@
 #include "net.hpp"
 #include "protocol.hpp"
 #include "uuid.h"
+#include "widget.hpp"
 #include <algorithm>
 #include <cmath>
 #include <raylib.h>
 
 namespace pboard::board_ui {
 
-std::optional<shape::Shape> ToolUse::render_of(float xm, float ym) const {
-  switch (selection) {
-  case Tool::PAN:
+std::optional<shape::Shape> tool_shape(const tool::ToolState &tool, float xm,
+                                       float ym) {
+  switch (tool.selection) {
+  case tool::Tool::PAN:
     break;
-  case Tool::LINE: {
-    shape::Line line{x0, y0, xm, ym, line_thickness, color};
+  case tool::Tool::LINE: {
+    shape::Line line{tool.x0, tool.y0, xm, ym, tool.line_thickness, tool.color};
     if (std::hypot(line.x1 - line.x0, line.y1 - line.y0) > MIN_SIZE)
       return line;
   } break;
-  case Tool::RECT: {
-    auto [x0, x1] = std::minmax(this->x0, xm);
-    auto [y0, y1] = std::minmax(this->y0, ym);
+  case tool::Tool::RECT: {
+    auto [x0, x1] = std::minmax(tool.x0, xm);
+    auto [y0, y1] = std::minmax(tool.y0, ym);
     if ((y1 - y0) > MIN_SIZE && (x1 - x0) > MIN_SIZE)
-      return shape::Rect{x0, y0, x1 - x0, y1 - y0, color};
+      return shape::Rect{x0, y0, x1 - x0, y1 - y0, tool.color};
   } break;
-  case Tool::CIRC: {
-    float r = std::hypot(xm - x0, ym - y0);
+  case tool::Tool::CIRC: {
+    float r = std::hypot(xm - tool.x0, ym - tool.y0);
     if (r > MIN_SIZE)
-      return shape::Circ{x0, y0, r, color};
+      return shape::Circ{tool.x0, tool.y0, r, tool.color};
   } break;
-  case Tool::SELECT:
+  case tool::Tool::SELECT:
     break;
   }
 
@@ -83,20 +85,21 @@ void UIState::update() {
   }
 
   peers.update(client);
+  tool_menu.update(tool);
 
   if (!active())
     return;
 
   if (IsKeyPressed(KEY_M)) {
-    tool.selection = ToolUse::Tool::PAN;
+    tool.selection = tool::Tool::PAN;
   } else if (IsKeyPressed(KEY_R)) {
-    tool.selection = ToolUse::Tool::RECT;
+    tool.selection = tool::Tool::RECT;
   } else if (IsKeyPressed(KEY_C)) {
-    tool.selection = ToolUse::Tool::CIRC;
+    tool.selection = tool::Tool::CIRC;
   } else if (IsKeyPressed(KEY_L)) {
-    tool.selection = ToolUse::Tool::LINE;
+    tool.selection = tool::Tool::LINE;
   } else if (IsKeyPressed(KEY_S)) {
-    tool.selection = ToolUse::Tool::SELECT;
+    tool.selection = tool::Tool::SELECT;
   }
 
   if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
@@ -105,7 +108,7 @@ void UIState::update() {
   }
 
   if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) &&
-      tool.selection == ToolUse::Tool::SELECT) {
+      tool.selection == tool::Tool::SELECT) {
     bool found{false};
     for (const auto &[id, obj] : std::views::reverse(client)) {
       if (point_in(tool.x0, tool.y0, obj.shape)) {
@@ -120,12 +123,12 @@ void UIState::update() {
   }
 
   if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
-    if (auto shape =
-            tool.render_of(GetMouseX() / scale + vx, GetMouseY() / scale + vy))
+    if (auto shape = tool_shape(tool, GetMouseX() / scale + vx,
+                                GetMouseY() / scale + vy))
       client.push_back(shape.value(), client.last);
   }
 
-  if (tool.selection == ToolUse::Tool::PAN &&
+  if (tool.selection == tool::Tool::PAN &&
       IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
     auto dv = GetMouseDelta();
     vx -= dv.x / scale;
@@ -137,12 +140,12 @@ void UIState::update() {
     shape_targ = {};
   }
 
-  if (tool.selection == ToolUse::Tool::PAN && GetMouseWheelMove() != 0) {
+  if (tool.selection == tool::Tool::PAN && GetMouseWheelMove() != 0) {
     scale += GetMouseWheelMove() * 0.2f;
     scale = std::clamp(scale, 0.1f, 3.0f);
   }
 
-  if (tool.selection == ToolUse::Tool::LINE && GetMouseWheelMove() != 0) {
+  if (tool.selection == tool::Tool::LINE && GetMouseWheelMove() != 0) {
     tool.line_thickness += GetMouseWheelMove() * 2.0f;
     tool.line_thickness = std::max(1.0f, tool.line_thickness);
   }
@@ -288,8 +291,8 @@ void UIState::render() const {
 
   RendVtor ghost{vx, vy, scale, 170};
   if (active() && IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
-    if (auto shape = tool.render_of(GetMouseX() / scale + vx,
-                                    GetMouseY() / scale + vy)) {
+    if (auto shape = tool_shape(tool, GetMouseX() / scale + vx,
+                                GetMouseY() / scale + vy)) {
       std::visit(ghost, shape.value());
     }
   }
@@ -303,19 +306,26 @@ void UIState::render() const {
 
   peers.render(ui_ctx);
 
+  tool_menu.render(tool, ui_ctx);
+
   auto cur = GetMousePosition();
   draw_cursor(cur.x, cur.y, client.self, false);
 }
 
 void UIState::layout() {
-  // float w = GetRenderWidth();
+  float w = GetRenderWidth();
   float h = GetRenderHeight();
-  peers.x = 20;
+  peers.x = 20.0f;
   peers.y = h - 200.0f - peers.BORDER;
   peers.w = 250.0f;
   peers.h = 200.0f;
+
+  tool_menu.x = w - 120.0f;
+  tool_menu.y = tool_menu.BORDER;
+  tool_menu.w = 120.0f - tool_menu.BORDER;
+  tool_menu.h = h - 2.0f * tool_menu.BORDER;
 }
 
-bool UIState::active() const { return !peers.is_active; }
+bool UIState::active() const { return !peers.is_active && !tool_menu.is_active; }
 
 }; // namespace pboard::board_ui

@@ -4,20 +4,12 @@
 #include "protocol.hpp"
 #include "shape.hpp"
 #include "timer.hpp"
+#include "tool.hpp"
 #include "widget.hpp"
 #include <optional>
 
 namespace pboard::board_ui {
 constexpr float MIN_SIZE = 10;
-
-struct ToolUse {
-  enum class Tool { PAN, LINE, RECT, CIRC, SELECT } selection{Tool::PAN};
-  float line_thickness{10.0f};
-  shape::Color color{0, 0, 0};
-  float x0{0}, y0{0};
-
-  std::optional<shape::Shape> render_of(float xm, float ym) const;
-};
 
 struct CursorState {
   Timer timer;
@@ -27,7 +19,7 @@ struct CursorState {
 struct UIState {
   const widget::UIContext &ui_ctx;
 
-  ToolUse tool{};
+  tool::ToolState tool{};
   net::ClientState &client;
   std::optional<net::ObjectId> shape_targ{};
   float vx{0.0f}, vy{0.0f};
@@ -36,6 +28,8 @@ struct UIState {
   CursorState cursor;
 
   widget::PeerList peers{};
+
+  widget::ToolMenu tool_menu{};
 
   explicit UIState(const widget::UIContext &ui_ctx, net::ClientState &client)
       : ui_ctx{ui_ctx}, client{client} {
