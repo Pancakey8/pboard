@@ -293,22 +293,22 @@ void ColorButton::render() const {
 
 extern "C" {
 extern char pboard_icons_pan_start[];
-extern char pboard_icons_pan_size[];
+extern char pboard_icons_pan_end[];
 
 extern char pboard_icons_line_start[];
-extern char pboard_icons_line_size[];
+extern char pboard_icons_line_end[];
 
 extern char pboard_icons_rect_start[];
-extern char pboard_icons_rect_size[];
+extern char pboard_icons_rect_end[];
 
 extern char pboard_icons_circle_start[];
-extern char pboard_icons_circle_size[];
+extern char pboard_icons_circle_end[];
 
 extern char pboard_icons_select_start[];
-extern char pboard_icons_select_size[];
+extern char pboard_icons_select_end[];
 
 extern char pboard_icons_bezier_start[];
-extern char pboard_icons_bezier_size[];
+extern char pboard_icons_bezier_end[];
 }
 
 IconButton::IconButton(Icon icon_id) : x{}, y{}, w{}, h{} {
@@ -318,32 +318,32 @@ IconButton::IconButton(Icon icon_id) : x{}, y{}, w{}, h{} {
 
   switch (icon_id) {
   case Icon::PAN: {
-    len = reinterpret_cast<std::size_t>(pboard_icons_pan_size);
+    len = (pboard_icons_pan_end - pboard_icons_pan_start);
     ext = ".png";
     data = pboard_icons_pan_start;
   } break;
   case Icon::SELECT: {
-    len = reinterpret_cast<std::size_t>(pboard_icons_select_size);
+    len = (pboard_icons_select_end - pboard_icons_select_start);
     ext = ".png";
     data = pboard_icons_select_start;
   } break;
   case Icon::RECT: {
-    len = reinterpret_cast<std::size_t>(pboard_icons_rect_size);
+    len = (pboard_icons_rect_end - pboard_icons_rect_start);
     ext = ".png";
     data = pboard_icons_rect_start;
   } break;
   case Icon::LINE: {
-    len = reinterpret_cast<std::size_t>(pboard_icons_line_size);
+    len = (pboard_icons_line_end - pboard_icons_line_start);
     ext = ".png";
     data = pboard_icons_line_start;
   } break;
   case Icon::CIRC: {
-    len = reinterpret_cast<std::size_t>(pboard_icons_circle_size);
+    len = (pboard_icons_circle_end - pboard_icons_circle_start);
     ext = ".png";
     data = pboard_icons_circle_start;
   } break;
   case Icon::BEZIER: {
-    len = reinterpret_cast<std::size_t>(pboard_icons_bezier_size);
+    len = (pboard_icons_bezier_end - pboard_icons_bezier_start);
     ext = ".png";
     data = pboard_icons_bezier_start;
   } break;
