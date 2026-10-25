@@ -27,7 +27,54 @@ add_custom_command(
   VERBATIM
 )
 
-add_executable(pboard src/main.cpp src/board_ui.cpp src/net.cpp src/whiteboard.cpp src/menu.cpp src/protocol.cpp src/widget.cpp "${SPACE_MONO_OUTPUT}" src/tool.cpp)
+set(ICONS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/res/icons")
+set(ICONS_LIST
+  "${ICONS_DIR}/pan.png"
+  "${ICONS_DIR}/line.png"
+  "${ICONS_DIR}/rect.png"
+  "${ICONS_DIR}/circle.png"
+  "${ICONS_DIR}/select.png"
+  "${ICONS_DIR}/bezier.png")
+
+find_program(OBJCOPY_EXECUTABLE objcopy REQUIRED)
+
+set(ICON_OBJECTS "")
+foreach(ICON_PATH ${ICONS_LIST})
+  get_filename_component(ICON_FILENAME "${ICON_PATH}" NAME)
+  get_filename_component(ICON_NAME "${ICON_PATH}" NAME_WE)
+  string(MAKE_C_IDENTIFIER "${ICON_FILENAME}" ICON_C_ID)
+
+  set(ICON_OBJ "${GENERATED_DIR}/icons/${ICON_NAME}.o")
+
+  add_custom_command(
+    OUTPUT "${ICON_OBJ}"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${GENERATED_DIR}/icons"
+    COMMAND "${OBJCOPY_EXECUTABLE}" -I binary -O elf64-x86-64 -B i386:x86-64
+            --redefine-sym "_binary_${ICON_C_ID}_start=pboard_icons_${ICON_NAME}_start"
+            --redefine-sym "_binary_${ICON_C_ID}_end=pboard_icons_${ICON_NAME}_end"
+            --redefine-sym "_binary_${ICON_C_ID}_size=pboard_icons_${ICON_NAME}_size"
+            "${ICON_FILENAME}" "${ICON_OBJ}"
+    WORKING_DIRECTORY "${ICONS_DIR}"
+    DEPENDS "${ICON_PATH}"
+    COMMENT "Embedding icon ${ICON_PATH}"
+    VERBATIM
+  )
+
+  list(APPEND ICON_OBJECTS "${ICON_OBJ}")
+endforeach()
+
+add_executable(pboard
+  src/main.cpp
+  src/board_ui.cpp
+  src/net.cpp
+  src/whiteboard.cpp
+  src/menu.cpp
+  src/protocol.cpp
+  src/widget.cpp
+  src/tool.cpp
+  "${SPACE_MONO_OUTPUT}"
+  ${ICON_OBJECTS})
+
 target_compile_features(pboard PUBLIC cxx_std_23)
 target_include_directories(pboard PRIVATE include/ "${GENERATED_DIR}")
 target_compile_options(pboard PRIVATE -Wall -Wextra)

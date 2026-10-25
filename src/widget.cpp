@@ -2,7 +2,9 @@
 #include "protocol.hpp"
 #include "tool.hpp"
 #include "words.hpp"
+#include <cassert>
 #include <cmath>
+#include <cstddef>
 #include <print>
 #include <ranges>
 #include <raylib.h>
@@ -289,9 +291,147 @@ void ColorButton::render() const {
   DrawCircle(x, y, r, color);
 }
 
+extern "C" {
+extern char pboard_icons_pan_start[];
+extern char pboard_icons_pan_size[];
+
+extern char pboard_icons_line_start[];
+extern char pboard_icons_line_size[];
+
+extern char pboard_icons_rect_start[];
+extern char pboard_icons_rect_size[];
+
+extern char pboard_icons_circle_start[];
+extern char pboard_icons_circle_size[];
+
+extern char pboard_icons_select_start[];
+extern char pboard_icons_select_size[];
+
+extern char pboard_icons_bezier_start[];
+extern char pboard_icons_bezier_size[];
+}
+
+IconButton::IconButton(Icon icon_id) : x{}, y{}, w{}, h{} {
+  std::size_t len{};
+  std::string ext{};
+  char *data{nullptr};
+
+  switch (icon_id) {
+  case Icon::PAN: {
+    len = reinterpret_cast<std::size_t>(pboard_icons_pan_size);
+    ext = ".png";
+    data = pboard_icons_pan_start;
+  } break;
+  case Icon::SELECT: {
+    len = reinterpret_cast<std::size_t>(pboard_icons_select_size);
+    ext = ".png";
+    data = pboard_icons_select_start;
+  } break;
+  case Icon::RECT: {
+    len = reinterpret_cast<std::size_t>(pboard_icons_rect_size);
+    ext = ".png";
+    data = pboard_icons_rect_start;
+  } break;
+  case Icon::LINE: {
+    len = reinterpret_cast<std::size_t>(pboard_icons_line_size);
+    ext = ".png";
+    data = pboard_icons_line_start;
+  } break;
+  case Icon::CIRC: {
+    len = reinterpret_cast<std::size_t>(pboard_icons_circle_size);
+    ext = ".png";
+    data = pboard_icons_circle_start;
+  } break;
+  case Icon::BEZIER: {
+    len = reinterpret_cast<std::size_t>(pboard_icons_bezier_size);
+    ext = ".png";
+    data = pboard_icons_bezier_start;
+  } break;
+  default:
+    assert(false && "Invalid icon id");
+  }
+
+  icon = LoadImageFromMemory(ext.c_str(),
+                             reinterpret_cast<unsigned char *>(data), len);
+  tex = LoadTextureFromImage(icon);
+}
+
+IconButton::~IconButton() {
+  UnloadTexture(tex);
+  UnloadImage(icon);
+}
+
+IconButton::IconButton(const IconButton &other)
+    : x(other.x), y(other.y), w(other.w), h(other.h) {
+  if (other.icon.data != nullptr) {
+    icon = ImageCopy(other.icon);
+    tex = LoadTextureFromImage(icon);
+  }
+}
+
+IconButton::IconButton(IconButton &&other) noexcept
+    : x(other.x), y(other.y), w(other.w), h(other.h),
+      icon(std::exchange(other.icon, Image{})),
+      tex(std::exchange(other.tex, Texture2D{})) {}
+
+IconButton &IconButton::operator=(const IconButton &other) {
+  if (this != &other) {
+    UnloadTexture(tex);
+    UnloadImage(icon);
+    x = other.x;
+    y = other.y;
+    w = other.w;
+    h = other.h;
+    if (other.icon.data != nullptr) {
+      icon = ImageCopy(other.icon);
+      tex = LoadTextureFromImage(icon);
+    } else {
+      icon = Image{};
+      tex = Texture2D{};
+    }
+  }
+
+  return *this;
+}
+
+IconButton &IconButton::operator=(IconButton &&other) noexcept {
+  if (this != &other) {
+    UnloadTexture(tex);
+    UnloadImage(icon);
+    x = other.x;
+    y = other.y;
+    w = other.w;
+    h = other.h;
+    icon = std::exchange(other.icon, Image{});
+    tex = std::exchange(other.tex, Texture2D{});
+  }
+  return *this;
+}
+
+void IconButton::update() {
+  auto mouse = GetMousePosition();
+
+  is_hovered =
+      (x <= mouse.x && mouse.x <= x + w) && (y <= mouse.y && mouse.y <= y + h);
+  is_pressed = (is_hovered && IsMouseButtonPressed(MOUSE_BUTTON_LEFT));
+}
+
+void IconButton::render(const UIContext &ctx) const {
+  DrawRectangle(x - BORDER, y - BORDER, w + 2 * BORDER, h + 2 * BORDER,
+                Color(15, 20, 45, 255));
+  auto bg = is_hovered ? Color(30, 40, 60, 255) : Color(15, 20, 45, 255);
+  DrawRectangle(x, y, w, h, bg);
+
+  float iw = std::clamp(static_cast<float>(icon.width), 0.0f, w);
+  float ih = std::clamp(static_cast<float>(icon.height), 0.0f, h);
+
+  DrawTexture(tex, x + (w - iw) / 2.0f, y + (h - ih) / 2.0f,
+              Color(255, 255, 255, 255));
+}
+
 void ToolMenu::update(tool::ToolState &tool) {
   [&]<typename... Buttons>(Buttons &...btn) {
-    float my{y + PADDING}, elem_h{30.0f};
+    float my{y + PADDING}, elem_h{32.0f};
     ((btn.x = x + PADDING, btn.y = my + PADDING,
       btn.w = w - 2 * btn.BORDER - PADDING, btn.h = elem_h,
       my += elem_h + 2 * btn.BORDER + 4.0f),
@@ -300,18 +440,13 @@ void ToolMenu::update(tool::ToolState &tool) {
   }(pan, select, rect, line, circ, bezier);
 
   float r{12.0f}, my{y + h - PADDING - r - ColorButton::BORDER};
-  float hgap{(w - 2.0f * PADDING - 4.0f * (r + ColorButton::BORDER)) / 3.0f},
-      vgap{6.0f};
+  float vgap{6.0f};
+
   for (const auto &[i, col] : colors | std::views::enumerate) {
-    col.x = x + (w - 4.0f * (r + col.BORDER) - hgap) / 2.0f + r;
-    if (i % 2 == 1) {
-      col.x += 2.0f * (r + col.BORDER) + hgap;
-    }
+    col.x = x + (w - 2.0f * (r + col.BORDER)) / 2.0f + r;
     col.y = my;
     col.r = r;
-    if (i % 2 == 1) {
-      my -= 2 * (r + col.BORDER) + vgap;
-    }
+    my -= 2 * (r + col.BORDER) + vgap;
   }
 
   for (const auto &[btn, col] : std::views::zip(colors, hotbar)) {

@@ -331,9 +331,11 @@ void UIState::layout() {
   peers.w = 250.0f;
   peers.h = 200.0f;
 
-  tool_menu.x = w - 100.0f;
+  float tool_menu_w = 42.0f;
+
+  tool_menu.x = w - tool_menu_w;
   tool_menu.y = tool_menu.BORDER;
-  tool_menu.w = 100.0f - tool_menu.BORDER;
+  tool_menu.w = tool_menu_w - tool_menu.BORDER;
   tool_menu.h = h - 2.0f * tool_menu.BORDER;
 }
 

@@ -103,13 +103,38 @@ struct ColorButton {
   void render() const;
 };
 
+enum class Icon { PAN, SELECT, RECT, LINE, CIRC, BEZIER };
+
+struct IconButton {
+  float x, y, w, h;
+  Image icon;
+  Texture2D tex;
+
+  bool is_pressed{false};
+  bool is_hovered{false};
+
+  static constexpr float BORDER{2.0f};
+
+  explicit IconButton(Icon icon_id);
+  ~IconButton();
+
+  IconButton(const IconButton &);
+  IconButton(IconButton &&) noexcept;
+  IconButton &operator=(const IconButton &);
+  IconButton &operator=(IconButton &&) noexcept;
+
+  void update();
+  void render(const UIContext &ctx) const;
+};
+
 struct ToolMenu {
   float x, y, w, h;
 
   static constexpr float PADDING{4.0f};
   static constexpr float BORDER{2.0f};
 
-  Button pan{}, select{}, rect{}, line{}, circ{}, bezier{};
+  IconButton pan{Icon::PAN}, select{Icon::SELECT}, rect{Icon::RECT},
+      line{Icon::LINE}, circ{Icon::CIRC}, bezier{Icon::BEZIER};
 
   std::array<Color, 8> hotbar{};
   std::array<ColorButton, 8> colors{};
@@ -117,13 +142,6 @@ struct ToolMenu {
   bool is_active{false};
 
   ToolMenu() {
-    pan.text = "Pan";
-    select.text = "Select";
-    rect.text = "Rectangle";
-    line.text = "Line";
-    circ.text = "Circle";
-    bezier.text = "Bezier";
-
     for (auto &col : colors) {
       col.color = Color(255, 0, 0, 255);
     }
