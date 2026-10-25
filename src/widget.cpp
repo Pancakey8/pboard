@@ -329,27 +329,32 @@ void ToolMenu::update(tool::ToolState &tool) {
 
   if (pan.is_pressed) {
     tool.selection = tool::Tool::PAN;
+    tool.data = tool::PanTool{};
   }
 
   if (select.is_pressed) {
     tool.selection = tool::Tool::SELECT;
+    tool.data = tool::SelectTool{};
   }
 
   if (rect.is_pressed) {
     tool.selection = tool::Tool::RECT;
+    tool.data = tool::RectTool{};
   }
 
   if (line.is_pressed) {
     tool.selection = tool::Tool::LINE;
+    tool.data = tool::LineTool{};
   }
 
   if (circ.is_pressed) {
     tool.selection = tool::Tool::CIRC;
+    tool.data = tool::CircTool{};
   }
 
   if (bezier.is_pressed) {
     tool.selection = tool::Tool::BEZIER;
-    tool.bez.idx = 0;
+    tool.data = tool::BezierTool{};
   }
 
   auto mouse = GetMousePosition();
@@ -357,7 +362,8 @@ void ToolMenu::update(tool::ToolState &tool) {
       (x <= mouse.x && mouse.x <= x + w) && (y <= mouse.y && mouse.y <= y + h);
 }
 
-void ToolMenu::render(const tool::ToolState &tool, const UIContext &ctx) const {
+void ToolMenu::render([[maybe_unused]] const tool::ToolState &tool,
+                      const UIContext &ctx) const {
   DrawRectangle(x - BORDER, y - BORDER, w + 2 * BORDER, h + 2 * BORDER,
                 Color(230, 230, 230, 255));
   DrawRectangle(x, y, w, h, Color(240, 240, 240, 255));

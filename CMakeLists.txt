@@ -27,7 +27,7 @@ add_custom_command(
   VERBATIM
 )
 
-add_executable(pboard src/main.cpp src/board_ui.cpp src/net.cpp src/whiteboard.cpp src/menu.cpp src/protocol.cpp src/widget.cpp "${SPACE_MONO_OUTPUT}")
+add_executable(pboard src/main.cpp src/board_ui.cpp src/net.cpp src/whiteboard.cpp src/menu.cpp src/protocol.cpp src/widget.cpp "${SPACE_MONO_OUTPUT}" src/tool.cpp)
 target_compile_features(pboard PUBLIC cxx_std_23)
 target_include_directories(pboard PRIVATE include/ "${GENERATED_DIR}")
 target_compile_options(pboard PRIVATE -Wall -Wextra)

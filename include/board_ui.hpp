@@ -21,7 +21,7 @@ struct UIState {
 
   tool::ToolState tool{};
   net::ClientState &client;
-  std::optional<net::ObjectId> shape_targ{};
+
   float vx{0.0f}, vy{0.0f};
   float scale{1.0f};
 

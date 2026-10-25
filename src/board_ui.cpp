@@ -7,171 +7,84 @@
 #include "widget.hpp"
 #include <algorithm>
 #include <cmath>
+#include <print>
 #include <raylib.h>
 #include <type_traits>
 
 namespace pboard::board_ui {
 
-shape::Bezier make_bezier(const tool::ToolState &tool, float mx, float my) {
-  auto &pts = tool.bez.pts;
-  auto idx = tool.bez.idx;
+// shape::Bezier make_bezier(const tool::ToolState &tool, float mx, float my) {
+//   auto &pts = tool.bez.pts;
+//   auto idx = tool.bez.idx;
 
-  if (idx == 8) {
-    return {pts[0],    pts[1], pts[2],
-            pts[3],    pts[4], pts[5],
-            pts[6],    pts[7], tool.line_thickness,
-            tool.color};
-  }
+//   if (idx == 8) {
+//     return {pts[0],    pts[1], pts[2],
+//             pts[3],    pts[4], pts[5],
+//             pts[6],    pts[7], tool.line_thickness,
+//             tool.color};
+//   }
 
-  if (idx == 0) {
-    float dx = mx - tool.x0;
-    float dy = my - tool.y0;
+//   if (idx == 0) {
+//     float dx = mx - tool.x0;
+//     float dy = my - tool.y0;
 
-    return {tool.x0,
-            tool.y0,
-            tool.x0 + dx / 3.0f,
-            tool.y0 + dy / 3.0f,
-            tool.x0 + 2.0f * dx / 3.0f,
-            tool.y0 + 2.0f * dy / 3.0f,
-            mx,
-            my,
-            tool.line_thickness,
-            tool.color};
-  }
+//     return {tool.x0,
+//             tool.y0,
+//             tool.x0 + dx / 3.0f,
+//             tool.y0 + dy / 3.0f,
+//             tool.x0 + 2.0f * dx / 3.0f,
+//             tool.y0 + 2.0f * dy / 3.0f,
+//             mx,
+//             my,
+//             tool.line_thickness,
+//             tool.color};
+//   }
 
-  float p[8];
-  for (std::uint64_t i = 0; i < idx; ++i)
-    p[i] = pts[i];
+//   float p[8];
+//   for (std::uint64_t i = 0; i < idx; ++i)
+//     p[i] = pts[i];
 
-  for (std::uint64_t i = idx; i < 8; i += 2) {
-    p[i] = mx;
-    p[i + 1] = my;
-  }
+//   for (std::uint64_t i = idx; i < 8; i += 2) {
+//     p[i] = mx;
+//     p[i + 1] = my;
+//   }
 
-  return {
-      p[0],      p[1], p[2], p[3], p[4], p[5], p[6], p[7], tool.line_thickness,
-      tool.color};
-}
+//   return {
+//       p[0],      p[1], p[2], p[3], p[4], p[5], p[6], p[7],
+//       tool.line_thickness, tool.color};
+// }
 
-std::optional<shape::Shape> tool_shape(const tool::ToolState &tool, float xm,
-                                       float ym) {
-  switch (tool.selection) {
-  case tool::Tool::PAN:
-    break;
-  case tool::Tool::LINE: {
-    shape::Line line{tool.x0, tool.y0, xm, ym, tool.line_thickness, tool.color};
-    if (std::hypot(line.x1 - line.x0, line.y1 - line.y0) > MIN_SIZE)
-      return line;
-  } break;
-  case tool::Tool::RECT: {
-    auto [x0, x1] = std::minmax(tool.x0, xm);
-    auto [y0, y1] = std::minmax(tool.y0, ym);
-    if ((y1 - y0) > MIN_SIZE && (x1 - x0) > MIN_SIZE)
-      return shape::Rect{x0, y0, x1 - x0, y1 - y0, tool.color};
-  } break;
-  case tool::Tool::CIRC: {
-    float r = std::hypot(xm - tool.x0, ym - tool.y0);
-    if (r > MIN_SIZE)
-      return shape::Circ{tool.x0, tool.y0, r, tool.color};
-  } break;
-  case tool::Tool::SELECT:
-    break;
-  case tool::Tool::BEZIER: {
-    return make_bezier(tool, xm, ym);
-  } break;
-  }
+// std::optional<shape::Shape> tool_shape(const tool::ToolState &tool, float xm,
+//                                        float ym) {
+//   switch (tool.selection) {
+//   case tool::Tool::PAN:
+//     break;
+//   case tool::Tool::LINE: {
+//     shape::Line line{tool.x0, tool.y0, xm, ym, tool.line_thickness,
+//     tool.color}; if (std::hypot(line.x1 - line.x0, line.y1 - line.y0) >
+//     MIN_SIZE)
+//       return line;
+//   } break;
+//   case tool::Tool::RECT: {
+//     auto [x0, x1] = std::minmax(tool.x0, xm);
+//     auto [y0, y1] = std::minmax(tool.y0, ym);
+//     if ((y1 - y0) > MIN_SIZE && (x1 - x0) > MIN_SIZE)
+//       return shape::Rect{x0, y0, x1 - x0, y1 - y0, tool.color};
+//   } break;
+//   case tool::Tool::CIRC: {
+//     float r = std::hypot(xm - tool.x0, ym - tool.y0);
+//     if (r > MIN_SIZE)
+//       return shape::Circ{tool.x0, tool.y0, r, tool.color};
+//   } break;
+//   case tool::Tool::SELECT:
+//     break;
+//   case tool::Tool::BEZIER: {
+//     return make_bezier(tool, xm, ym);
+//   } break;
+//   }
 
-  return {};
-}
-
-bool point_in(float x, float y, const shape::Shape &shape) {
-  struct {
-    float x, y;
-
-    bool operator()(const shape::Line &line) {
-      float ab_x = line.x1 - line.x0;
-      float ab_y = line.y1 - line.y0;
-
-      float ap_x = x - line.x0;
-      float ap_y = y - line.y0;
-
-      float ab2 = ab_x * ab_x + ab_y * ab_y;
-
-      float t = 0.0f;
-      if (ab2 != 0) {
-        t = (ap_x * ab_x + ap_y * ab_y) / ab2;
-        t = std::clamp(t, 0.0f, 1.0f);
-      }
-
-      float c_x = line.x0 + t * ab_x;
-      float c_y = line.y0 + t * ab_y;
-
-      float d = std::hypot(x - c_x, y - c_y);
-      float r = line.thick / 2;
-
-      return d <= r;
-    }
-
-    bool operator()(const shape::Rect &rect) {
-      return (rect.x <= x && x <= rect.x + rect.w) &&
-             (rect.y <= y && y <= rect.y + rect.h);
-    }
-
-    bool operator()(const shape::Circ &circ) {
-      auto d = std::hypot(circ.x - x, circ.y - y);
-      return d <= circ.r;
-    }
-
-    bool operator()(const shape::Bezier &bez) {
-      constexpr int segments = 64;
-
-      auto bezier_point = [&](float t) {
-        float u = 1.0f - t;
-        float b0 = u * u * u;
-        float b1 = 3.0f * u * u * t;
-        float b2 = 3.0f * u * t * t;
-        float b3 = t * t * t;
-
-        return std::pair{b0 * bez.x0 + b1 * bez.x1 + b2 * bez.x2 + b3 * bez.x3,
-                         b0 * bez.y0 + b1 * bez.y1 + b2 * bez.y2 + b3 * bez.y3};
-      };
-
-      float radius = bez.thick / 2.0f;
-
-      auto [prev_x, prev_y] = bezier_point(0.0f);
-
-      for (int i = 1; i <= segments; ++i) {
-        float t = static_cast<float>(i) / segments;
-        auto [curr_x, curr_y] = bezier_point(t);
-
-        float ab_x = curr_x - prev_x;
-        float ab_y = curr_y - prev_y;
-        float ap_x = x - prev_x;
-        float ap_y = y - prev_y;
-
-        float ab2 = ab_x * ab_x + ab_y * ab_y;
-
-        float u = 0.0f;
-        if (ab2 > 0.0f) {
-          u = std::clamp((ap_x * ab_x + ap_y * ab_y) / ab2, 0.0f, 1.0f);
-        }
-
-        float dx = x - (prev_x + u * ab_x);
-        float dy = y - (prev_y + u * ab_y);
-
-        if (dx * dx + dy * dy <= radius * radius)
-          return true;
-
-        prev_x = curr_x;
-        prev_y = curr_y;
-      }
-
-      return false;
-    }
-  } coll{x, y};
-
-  return std::visit(coll, shape);
-}
+//   return {};
+// }
 
 void UIState::update() {
   if (IsWindowResized()) {
@@ -186,72 +99,26 @@ void UIState::update() {
 
   if (IsKeyPressed(KEY_M)) {
     tool.selection = tool::Tool::PAN;
+    tool.data = tool::PanTool{};
   } else if (IsKeyPressed(KEY_R)) {
     tool.selection = tool::Tool::RECT;
+    tool.data = tool::RectTool{};
   } else if (IsKeyPressed(KEY_C)) {
     tool.selection = tool::Tool::CIRC;
+    tool.data = tool::CircTool{};
   } else if (IsKeyPressed(KEY_L)) {
     tool.selection = tool::Tool::LINE;
+    tool.data = tool::LineTool{};
   } else if (IsKeyPressed(KEY_S)) {
     tool.selection = tool::Tool::SELECT;
+    tool.data = tool::SelectTool{};
   } else if (IsKeyPressed(KEY_B)) {
     tool.selection = tool::Tool::BEZIER;
-    tool.bez.idx = 0;
+    tool.data = tool::BezierTool{};
   }
 
-  if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-    tool.x0 = GetMouseX() / scale + vx;
-    tool.y0 = GetMouseY() / scale + vy;
-  }
-
-  if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) &&
-      tool.selection == tool::Tool::SELECT) {
-    bool found{false};
-    for (const auto &[id, obj] : std::views::reverse(client)) {
-      if (point_in(tool.x0, tool.y0, obj.shape)) {
-        found = true;
-        shape_targ = id;
-        break;
-      }
-    }
-
-    if (!found)
-      shape_targ = {};
-  }
-
-  if (tool.selection == tool::Tool::BEZIER && tool.bez.idx != 8 &&
-      IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
-    float mx = GetMouseX() / scale + vx;
-    float my = GetMouseY() / scale + vy;
-    if (std::hypot(mx - tool.x0, my - tool.y0) < 5.0f) {
-      tool.bez.pts[tool.bez.idx] = tool.x0;
-      tool.bez.pts[tool.bez.idx + 1] = tool.y0;
-      tool.bez.idx += 2;
-    } else {
-      tool.bez.pts[tool.bez.idx] = tool.x0;
-      tool.bez.pts[tool.bez.idx + 1] = tool.y0;
-      tool.bez.idx += 2;
-      if (tool.bez.idx != 8) {
-        tool.bez.pts[tool.bez.idx] = mx;
-        tool.bez.pts[tool.bez.idx + 1] = my;
-        tool.bez.idx += 2;
-      }
-    }
-  }
-
-  if (tool.selection == tool::Tool::BEZIER && tool.bez.idx == 8 &&
-      IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
-    if (auto shape = tool_shape(tool, GetMouseX() / scale + vx,
-                                GetMouseY() / scale + vy))
-      client.push_back(shape.value(), client.last);
-    tool.bez.idx = 0;
-  }
-
-  if (tool.selection != tool::Tool::BEZIER &&
-      IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
-    if (auto shape = tool_shape(tool, GetMouseX() / scale + vx,
-                                GetMouseY() / scale + vy))
-      client.push_back(shape.value(), client.last);
+  if (auto shape = tool.update(client, vx, vy, scale)) {
+    client.push_back(*shape, client.last);
   }
 
   if (tool.selection == tool::Tool::PAN &&
@@ -261,17 +128,12 @@ void UIState::update() {
     vy -= dv.y / scale;
   }
 
-  if (shape_targ && IsKeyPressed(KEY_DELETE)) {
-    client.erase(shape_targ.value());
-    shape_targ = {};
-  }
-
   if (tool.selection == tool::Tool::PAN && GetMouseWheelMove() != 0) {
     scale += GetMouseWheelMove() * 0.2f;
     scale = std::clamp(scale, 0.1f, 3.0f);
   }
 
-  if (tool.selection == tool::Tool::LINE && GetMouseWheelMove() != 0) {
+  if (tool.selection != tool::Tool::PAN && GetMouseWheelMove() != 0) {
     tool.line_thickness += GetMouseWheelMove() * 2.0f;
     tool.line_thickness = std::max(1.0f, tool.line_thickness);
   }
@@ -371,7 +233,7 @@ void UIState::render() const {
 
         DrawLineEx({(line.x0 - vx - dx) * scale, (line.y0 - vy - dy) * scale},
                    {(line.x1 - vx + dx) * scale, (line.y1 - vy + dy) * scale},
-                   (line.thick + 4.0f) * scale, HL_COLOR);
+                   (line.thick + 2.0f) * scale, HL_COLOR);
       }
 
       DrawLineEx({(line.x0 - vx) * scale, (line.y0 - vy) * scale},
@@ -408,12 +270,12 @@ void UIState::render() const {
         DrawSplineSegmentBezierCubic(
             {TX(bez.x0), TY(bez.y0)}, {TX(bez.x1), TY(bez.y1)},
             {TX(bez.x2), TY(bez.y2)}, {TX(bez.x3), TY(bez.y3)},
-            bez.thick + 2.0f, HL_COLOR);
+            (bez.thick + 2.0f) * scale, HL_COLOR);
 
       DrawSplineSegmentBezierCubic(
           {TX(bez.x0), TY(bez.y0)}, {TX(bez.x1), TY(bez.y1)},
-          {TX(bez.x2), TY(bez.y2)}, {TX(bez.x3), TY(bez.y3)}, bez.thick,
-          Color(bez.col.r, bez.col.g, bez.col.b, 255));
+          {TX(bez.x2), TY(bez.y2)}, {TX(bez.x3), TY(bez.y3)}, bez.thick * scale,
+          Color(bez.col.r, bez.col.g, bez.col.b, alpha));
 #undef TX
 #undef TY
     }
@@ -422,24 +284,23 @@ void UIState::render() const {
   ClearBackground(WHITE);
 
   RendVtor rend{vx, vy, scale, 255}, hl{vx, vy, scale, 255, true};
+
+  std::optional<net::ObjectId> targ{};
+  if (tool.selection == tool::Tool::SELECT) {
+    targ = std::get<tool::SelectTool>(tool.data).selection;
+  }
+
   for (const auto &[id, obj] : client) {
-    if (shape_targ == id) {
+    if (targ == id) {
       std::visit(hl, obj.shape);
     } else {
       std::visit(rend, obj.shape);
     }
   }
 
-  bool preview_bezier =
-      active() && tool.selection == tool::Tool::BEZIER &&
-      (tool.bez.idx > 0 || IsMouseButtonDown(MOUSE_BUTTON_LEFT));
-
   RendVtor ghost{vx, vy, scale, 170};
-  if (active() && (IsMouseButtonDown(MOUSE_BUTTON_LEFT) || preview_bezier)) {
-    if (auto shape = tool_shape(tool, GetMouseX() / scale + vx,
-                                GetMouseY() / scale + vy)) {
-      std::visit(ghost, shape.value());
-    }
+  if (auto s = tool.ghost(vx, vy, scale)) {
+    std::visit(ghost, *s);
   }
 
   for (const auto &[id, cur] : client.cursors) {
