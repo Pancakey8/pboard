@@ -419,7 +419,10 @@ void IconButton::update() {
 void IconButton::render(const UIContext &ctx) const {
   DrawRectangle(x - BORDER, y - BORDER, w + 2 * BORDER, h + 2 * BORDER,
                 Color(15, 20, 45, 255));
-  auto bg = is_hovered ? Color(30, 40, 60, 255) : Color(15, 20, 45, 255);
+  auto bg =
+    is_selected ? Color(0x00, 0x8d, 0xff, 255) :
+    is_hovered  ? Color(30, 40, 60, 255)  :
+    Color(15, 20, 45, 255);
   DrawRectangle(x, y, w, h, bg);
 
   float iw = std::clamp(static_cast<float>(icon.width), 0.0f, w);
@@ -435,7 +438,8 @@ void ToolMenu::update(tool::ToolState &tool) {
     ((btn.x = x + PADDING, btn.y = my + PADDING,
       btn.w = w - 2 * btn.BORDER - PADDING, btn.h = elem_h,
       my += elem_h + 2 * btn.BORDER + 4.0f),
-     ...);
+      ...);
+    ((btn.is_selected = false), ...);
     (btn.update(), ...);
   }(pan, select, rect, line, circ, bezier);
 
@@ -490,6 +494,27 @@ void ToolMenu::update(tool::ToolState &tool) {
   if (bezier.is_pressed) {
     tool.selection = tool::Tool::BEZIER;
     tool.data = tool::BezierTool{};
+  }
+
+  switch (tool.selection) {
+  case tool::Tool::PAN:
+    pan.is_selected = true;
+    break;
+  case tool::Tool::LINE:
+    line.is_selected = true;
+    break;
+  case tool::Tool::RECT:
+    rect.is_selected = true;
+    break;
+  case tool::Tool::CIRC:
+    circ.is_selected = true;
+    break;
+  case tool::Tool::SELECT:
+    select.is_selected = true;
+    break;
+  case tool::Tool::BEZIER:
+    bezier.is_selected = true;
+    break;
   }
 
   auto mouse = GetMousePosition();

@@ -110,6 +110,7 @@ struct IconButton {
   Image icon;
   Texture2D tex;
 
+  bool is_selected{false};
   bool is_pressed{false};
   bool is_hovered{false};
 
