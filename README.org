@@ -26,9 +26,9 @@ Collaborative whiteboard app
 
 - [-] Tool selection UI
   - [X] Basics
-  - [-] Use icons for buttons
+  - [X] Use icons for buttons
     - [X] Placeholder
-    - [ ] Real icons
+    - [X] Real icons
   - [ ] Deletion, line thickness / tool specific interactions
 - [X] Better tool drawing
 - [ ] Export to SVG/PNG/JPG
