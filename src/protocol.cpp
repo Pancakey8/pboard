@@ -1,4 +1,5 @@
 #include "protocol.hpp"
+#include "shape.hpp"
 #include <algorithm>
 
 namespace pboard::net {
@@ -57,6 +58,23 @@ void serialize_shape(shape::Shape shape, std::vector<std::uint8_t> &out) {
       serialize_num(circ.col.r, out);
       serialize_num(circ.col.g, out);
       serialize_num(circ.col.b, out);
+    }
+
+    void operator()(const shape::Bezier &bez) {
+      out.push_back('B');
+      out.push_back('Z');
+      serialize_num(bez.x0, out);
+      serialize_num(bez.y0, out);
+      serialize_num(bez.x1, out);
+      serialize_num(bez.y1, out);
+      serialize_num(bez.x2, out);
+      serialize_num(bez.y2, out);
+      serialize_num(bez.x3, out);
+      serialize_num(bez.y3, out);
+      serialize_num(bez.thick, out);
+      serialize_num(bez.col.r, out);
+      serialize_num(bez.col.g, out);
+      serialize_num(bez.col.b, out);
     }
   } serial{out};
 
@@ -304,6 +322,33 @@ std::optional<shape::Shape> deserialize_shape(auto &it, auto end) {
     if (!deserialize_num(circ.col.b, it, end))
       return std::nullopt;
     return shape::Shape{circ};
+  } else if (tag1 == 'B' && tag2 == 'Z') {
+    shape::Bezier bez;
+    if (!deserialize_num(bez.x0, it, end))
+      return std::nullopt;
+    if (!deserialize_num(bez.y0, it, end))
+      return std::nullopt;
+    if (!deserialize_num(bez.x1, it, end))
+      return std::nullopt;
+    if (!deserialize_num(bez.y1, it, end))
+      return std::nullopt;
+    if (!deserialize_num(bez.x2, it, end))
+      return std::nullopt;
+    if (!deserialize_num(bez.y2, it, end))
+      return std::nullopt;
+    if (!deserialize_num(bez.x3, it, end))
+      return std::nullopt;
+    if (!deserialize_num(bez.y3, it, end))
+      return std::nullopt;
+    if (!deserialize_num(bez.thick, it, end))
+      return std::nullopt;
+    if (!deserialize_num(bez.col.r, it, end))
+      return std::nullopt;
+    if (!deserialize_num(bez.col.g, it, end))
+      return std::nullopt;
+    if (!deserialize_num(bez.col.b, it, end))
+      return std::nullopt;
+    return shape::Shape{bez};
   }
 
   return std::nullopt;

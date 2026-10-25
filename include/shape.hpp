@@ -25,7 +25,16 @@ struct Circ {
   Color col;
 };
 
-using Shape = std::variant<Line, Rect, Circ>;
-enum class ShapeId : std::uint8_t { LINE, RECT, CIRC };
+struct Bezier {
+  float x0, y0;
+  float x1, y1;
+  float x2, y2;
+  float x3, y3;
+  float thick;
+  Color col;
+};
+
+using Shape = std::variant<Line, Rect, Circ, Bezier>;
+  enum class ShapeId : std::uint8_t { LINE, RECT, CIRC, BEZIER };
 
 } // namespace pboard::shape

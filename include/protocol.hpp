@@ -49,7 +49,7 @@ struct ObjectData {
   ObjectId deleted_by{OBJ_NONE};
 };
 
-constexpr std::uint32_t BULK_SIZE = 10;
+constexpr std::uint32_t BULK_SIZE = 9;
 
 // TODO: Good size?
 static_assert((sizeof(ObjectData) + sizeof(ObjectId)) * BULK_SIZE + 10 <= 1024);

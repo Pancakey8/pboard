@@ -28,10 +28,13 @@ Collaborative whiteboard app
   - [X] Basics
   - [ ] Use icons for buttons
   - [ ] Deletion, line thickness / tool specific interactions
+- [ ] Better tool drawing
+- [ ] Export to SVG/PNG/JPG
+- [ ] Export/import custom format?
 - [ ] Color wheel
 - [X] Color hotbar
 - [ ] Text shape
-- [ ] Bezier curves
+- [X] Bezier curves
 - [ ] Hollow rectangle/circle
 - [X] Nicknames & peer list
 - [X] Real-time peer cursor

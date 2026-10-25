@@ -297,7 +297,7 @@ void ToolMenu::update(tool::ToolState &tool) {
       my += elem_h + 2 * btn.BORDER + 4.0f),
      ...);
     (btn.update(), ...);
-  }(pan, select, rect, line, circ);
+  }(pan, select, rect, line, circ, bezier);
 
   float r{12.0f}, my{y + h - PADDING - r - ColorButton::BORDER};
   float hgap{(w - 2.0f * PADDING - 4.0f * (r + ColorButton::BORDER)) / 3.0f},
@@ -347,6 +347,11 @@ void ToolMenu::update(tool::ToolState &tool) {
     tool.selection = tool::Tool::CIRC;
   }
 
+  if (bezier.is_pressed) {
+    tool.selection = tool::Tool::BEZIER;
+    tool.bez.idx = 0;
+  }
+
   auto mouse = GetMousePosition();
   is_active =
       (x <= mouse.x && mouse.x <= x + w) && (y <= mouse.y && mouse.y <= y + h);
@@ -359,7 +364,7 @@ void ToolMenu::render(const tool::ToolState &tool, const UIContext &ctx) const {
 
   [&]<typename... Buttons>(Buttons &...btn) {
     (btn.render(ctx), ...);
-  }(pan, select, rect, line, circ);
+  }(pan, select, rect, line, circ, bezier);
 
   for (const auto &col : colors) {
     col.render();

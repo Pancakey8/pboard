@@ -102,14 +102,14 @@ struct ColorButton {
   void update();
   void render() const;
 };
-  
+
 struct ToolMenu {
   float x, y, w, h;
 
   static constexpr float PADDING{4.0f};
   static constexpr float BORDER{2.0f};
 
-  Button pan{}, select{}, rect{}, line{}, circ{};
+  Button pan{}, select{}, rect{}, line{}, circ{}, bezier{};
 
   std::array<Color, 8> hotbar{};
   std::array<ColorButton, 8> colors{};
@@ -122,6 +122,7 @@ struct ToolMenu {
     rect.text = "Rectangle";
     line.text = "Line";
     circ.text = "Circle";
+    bezier.text = "Bezier";
 
     for (auto &col : colors) {
       col.color = Color(255, 0, 0, 255);
