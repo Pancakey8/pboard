@@ -41,6 +41,8 @@ using ToolData =
     std::variant<PanTool, LineTool, RectTool, CircTool, SelectTool, BezierTool>;
 
 struct ToolState {
+  constexpr static float PIVOT_RAD{6.0f};
+
   Tool selection{Tool::PAN};
   ToolData data{PanTool{}};
   float line_thickness{10.0f};
@@ -50,6 +52,8 @@ struct ToolState {
 
   std::optional<shape::Shape> update(net::ClientState &client, float vx,
                                      float vy, float scale);
+
+  std::vector<std::pair<float, float>> pivots() const;
 };
 
 }; // namespace pboard::tool

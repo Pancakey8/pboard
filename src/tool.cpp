@@ -96,76 +96,87 @@ bool point_in(float x, float y, const shape::Shape &shape) {
   return std::visit(coll, shape);
 }
 
+bool is_drag(float xp, float yp, float xm, float ym, Vector2 dm, float r) {
+  float x_pre = xm - dm.x;
+  float y_pre = ym - dm.y;
+
+  float l2 = dm.x * dm.x + dm.y * dm.y;
+
+  if (l2 == 0.0f) {
+    float dx = xp - xm;
+    float dy = yp - ym;
+    return (dx * dx + dy * dy) <= (r * r);
+  }
+
+  float pm_x = xp - x_pre;
+  float pm_y = yp - y_pre;
+  float t = (pm_x * dm.x + pm_y * dm.y) / l2;
+
+  t = std::clamp(t, 0.0f, 1.0f);
+
+  float cx = x_pre + t * dm.x;
+  float cy = y_pre + t * dm.y;
+
+  float dx = xp - cx;
+  float dy = yp - cy;
+
+  return (dx * dx + dy * dy) <= (r * r);
+}
+
 struct ToolVtor {
   net::ClientState &client;
   float vx, vy, scale;
 
+  void two_point(ToolStatus &status, float &x0, float &y0, float &x1,
+                 float &y1) {
+    switch (status) {
+    case ToolStatus::NONE: {
+      if (!IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+        break;
+      x0 = GetMouseX() / scale + vx;
+      y0 = GetMouseY() / scale + vy;
+      status = ToolStatus::DRAW;
+    } break;
+    case ToolStatus::DRAW: {
+      if (!IsMouseButtonReleased(MOUSE_BUTTON_LEFT))
+        break;
+      x1 = GetMouseX() / scale + vx;
+      y1 = GetMouseY() / scale + vy;
+      status = ToolStatus::FINAL;
+    } break;
+    case ToolStatus::FINAL: {
+      if (!IsMouseButtonDown(MOUSE_BUTTON_LEFT))
+        break;
+
+      auto xm = GetMouseX() / scale + vx;
+      auto ym = GetMouseY() / scale + vy;
+      auto dm = GetMouseDelta();
+
+      if (is_drag(x0, y0, xm, ym, dm, ToolState::PIVOT_RAD)) {
+        x0 += dm.x;
+        y0 += dm.y;
+      }
+
+      if (is_drag(x1, y1, xm, ym, dm, ToolState::PIVOT_RAD)) {
+        x1 += dm.x;
+        y1 += dm.y;
+      }
+    } break;
+    }
+  }
+
   void operator()(PanTool &) {}
 
   void operator()(LineTool &tool) {
-    switch (tool.status) {
-    case ToolStatus::NONE: {
-      if (!IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
-        break;
-      tool.x0 = GetMouseX() / scale + vx;
-      tool.y0 = GetMouseY() / scale + vy;
-      tool.status = ToolStatus::DRAW;
-    } break;
-    case ToolStatus::DRAW: {
-      if (!IsMouseButtonReleased(MOUSE_BUTTON_LEFT))
-        break;
-      tool.x1 = GetMouseX() / scale + vx;
-      tool.y1 = GetMouseY() / scale + vy;
-      tool.status = ToolStatus::FINAL;
-    } break;
-    case ToolStatus::FINAL:
-      // TODO: Pivot editing
-      break;
-    }
+    two_point(tool.status, tool.x0, tool.y0, tool.x1, tool.y1);
   }
 
   void operator()(RectTool &tool) {
-    switch (tool.status) {
-    case ToolStatus::NONE: {
-      if (!IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
-        break;
-      tool.x0 = GetMouseX() / scale + vx;
-      tool.y0 = GetMouseY() / scale + vy;
-      tool.status = ToolStatus::DRAW;
-    } break;
-    case ToolStatus::DRAW: {
-      if (!IsMouseButtonReleased(MOUSE_BUTTON_LEFT))
-        break;
-      tool.x1 = GetMouseX() / scale + vx;
-      tool.y1 = GetMouseY() / scale + vy;
-      tool.status = ToolStatus::FINAL;
-    } break;
-    case ToolStatus::FINAL:
-      // TODO: Pivot editing
-      break;
-    }
+    two_point(tool.status, tool.x0, tool.y0, tool.x1, tool.y1);
   }
 
   void operator()(CircTool &tool) {
-    switch (tool.status) {
-    case ToolStatus::NONE: {
-      if (!IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
-        break;
-      tool.x0 = GetMouseX() / scale + vx;
-      tool.y0 = GetMouseY() / scale + vy;
-      tool.status = ToolStatus::DRAW;
-    } break;
-    case ToolStatus::DRAW: {
-      if (!IsMouseButtonReleased(MOUSE_BUTTON_LEFT))
-        break;
-      tool.x1 = GetMouseX() / scale + vx;
-      tool.y1 = GetMouseY() / scale + vy;
-      tool.status = ToolStatus::FINAL;
-    } break;
-    case ToolStatus::FINAL:
-      // TODO: Pivot editing
-      break;
-    }
+    two_point(tool.status, tool.x0, tool.y0, tool.x1, tool.y1);
   }
 
   void operator()(SelectTool &sel) {
@@ -189,7 +200,21 @@ struct ToolVtor {
 
   void operator()(BezierTool &tool) {
     if (tool.idx == 8) {
-      // TODO: Pivot editing
+      if (!IsMouseButtonDown(MOUSE_BUTTON_LEFT))
+        return;
+      auto xm = GetMouseX() / scale + vx;
+      auto ym = GetMouseY() / scale + vy;
+      auto dm = GetMouseDelta();
+
+      for (std::size_t i = 0; i < 4; ++i) {
+        auto &xp = tool.pts[2 * i];
+        auto &yp = tool.pts[2 * i + 1];
+
+        if (is_drag(xp, yp, xm, ym, dm, ToolState::PIVOT_RAD)) {
+          xp += dm.x;
+          yp += dm.y;
+        }
+      }
     } else {
       if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
         tool.pts[tool.idx] = GetMouseX() / scale + vx;
@@ -334,6 +359,50 @@ struct GhostVtor {
   }
 };
 
+struct PivotVtor {
+  std::vector<std::pair<float, float>> operator()(const PanTool &) {
+    return {};
+  }
+
+  std::vector<std::pair<float, float>> operator()(const LineTool &tool) {
+    if (tool.status != ToolStatus::FINAL)
+      return {};
+
+    return {{tool.x0, tool.y0}, {tool.x1, tool.y1}};
+  }
+
+  std::vector<std::pair<float, float>> operator()(const RectTool &tool) {
+    if (tool.status != ToolStatus::FINAL)
+      return {};
+
+    return {{tool.x0, tool.y0}, {tool.x1, tool.y1}};
+  }
+
+  std::vector<std::pair<float, float>> operator()(const CircTool &tool) {
+    if (tool.status != ToolStatus::FINAL)
+      return {};
+
+    return {{tool.x0, tool.y0}, {tool.x1, tool.y1}};
+  }
+
+  std::vector<std::pair<float, float>> operator()(const SelectTool &) {
+    return {};
+  }
+
+  std::vector<std::pair<float, float>> operator()(const BezierTool &tool) {
+    if (tool.idx != 8)
+      return {};
+
+    std::vector<std::pair<float, float>> pts(4);
+
+    for (std::size_t i = 0; i < 4; ++i) {
+      pts[i] = {tool.pts[2 * i], tool.pts[2 * i + 1]};
+    }
+
+    return pts;
+  }
+};
+
 std::optional<shape::Shape> ToolState::update(net::ClientState &client,
                                               float vx, float vy, float scale) {
   std::visit(ToolVtor{client, vx, vy, scale}, data);
@@ -348,6 +417,10 @@ std::optional<shape::Shape> ToolState::update(net::ClientState &client,
 std::optional<shape::Shape> ToolState::ghost(float vx, float vy,
                                              float scale) const {
   return std::visit(GhostVtor{vx, vy, scale, line_thickness, color}, data);
+}
+
+std::vector<std::pair<float, float>> ToolState::pivots() const {
+  return std::visit(PivotVtor{}, data);
 }
 
 } // namespace pboard::tool

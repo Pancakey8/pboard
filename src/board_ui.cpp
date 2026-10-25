@@ -303,6 +303,11 @@ void UIState::render() const {
     std::visit(ghost, *s);
   }
 
+  for (auto &[px, py] : tool.pivots()) {
+    DrawCircleLines((px - vx) * scale, (py - vy) * scale, tool.PIVOT_RAD,
+                    Color(70, 70, 70, 255));
+  }
+
   for (const auto &[id, cur] : client.cursors) {
     if (!cur.alive())
       continue;

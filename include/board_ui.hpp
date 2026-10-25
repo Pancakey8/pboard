@@ -9,7 +9,6 @@
 #include <optional>
 
 namespace pboard::board_ui {
-constexpr float MIN_SIZE = 10;
 
 struct CursorState {
   Timer timer;
